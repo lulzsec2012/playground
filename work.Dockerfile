@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y sudo
 # # 将用户xxx添加到sudo组
 # RUN usermod -aG sudo lizhi.lu
 
-# 允许sudo组成员执行sudo命令，注意在echo中是`>`
+# 允许sudo组成员执行sudo命令
 RUN echo 'lizhi.lu ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 CMD "start.sh"

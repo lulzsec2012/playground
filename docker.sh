@@ -31,18 +31,18 @@ else
   echo "Docker 镜像 $alex_image 已存在."
 fi
 
-run_script="./docker/run.sh"
-if [ -f "$run_script" ]; then
-  echo "更新运行脚本中的用户名..."
-  sed -i "s/$base_name/$alex_name/g" "$run_script"
-  sed -i "s/$base_name2/$alex_name/g" "$run_script"
-  if [ $? -eq 0 ]; then
-    echo "运行脚本更新成功."
-  else
-    echo "更新运行脚本失败."
-    exit 1
-  fi
-else
-  echo "运行脚本 $run_script 不存在."
-  exit 1
-fi
+# run_script="./docker/run.sh"
+# if [ -f "$run_script" ]; then
+#   echo "更新运行脚本中的用户名..."
+#   sed -i "s/$base_name/$alex_name/g" "$run_script"
+#   sed -i "s/$base_name2/$alex_name/g" "$run_script"
+#   if [ $? -eq 0 ]; then
+#     echo "运行脚本更新成功."
+#   else
+#     echo "更新运行脚本失败."
+#     exit 1
+#   fi
+# else
+#   echo "运行脚本 $run_script 不存在."
+#   exit 1
+# fi

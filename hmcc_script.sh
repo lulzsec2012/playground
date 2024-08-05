@@ -46,4 +46,4 @@ popd
 
 popd
 
-pip install numpy onnx pybind11 pytest graphviz jinja2 matplotlib
+pip install numpy onnx pybind11 pytest graphviz jinja2 matplotlib torch black

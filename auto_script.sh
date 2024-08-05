@@ -1,10 +1,17 @@
 #!/bin/bash
 
+# 函数：检查命令是否成功
+check_success() {
+    if [ $? -ne 0 ]; then
+        echo "Error: $1"
+        exit 1
+    fi
+}
 
 function add_profile() {
-  if [ ! -f .profile ]; then
-  # 写入配置文件
-  cat > .profile <<EOL
+    if [ ! -f .profile ]; then
+        # 写入配置文件
+        cat > .profile <<EOL
 # ~/.profile: executed by Bourne-compatible login shells.
 
 if [ "$BASH" ]; then
@@ -15,27 +22,27 @@ fi
 
 mesg n 2> /dev/null || true
 EOL
-  fi
+    fi
 }
 
 function config_pip_mirror() {
-  mkdir -p ./.pip
+    mkdir -p ./.pip
 
-  # 写入配置文件
-  cat > ./.pip/pip.conf <<EOL
+    # 写入配置文件
+    cat > ./.pip/pip.conf <<EOL
 [global]
 index-url = https://mirrors.aliyun.com/pypi/simple/
 
 [install]
 trusted-host = mirrors.aliyun.com
 EOL
-  echo "Pip配置已更新为阿里云镜像源。"
+    echo "Pip配置已更新为阿里云镜像源。"
 }
 
 function gitconfig() {
-  # 检查 .gitconfig 是否存在并编辑
-  if [ -f .gitconfig ]; then
-    cat <<EOT >> .gitconfig
+    # 检查 .gitconfig 是否存在并编辑
+    if [ -f .gitconfig ]; then
+        cat <<EOT >> .gitconfig
 [alias]
 	br = branch
 	ci = commit
@@ -45,42 +52,48 @@ function gitconfig() {
 	name = lizhi lu
 	email = lizhi.lu@houmo.ai
 EOT
-  else
-    echo "File ~/docker/home-work/.gitconfig does not exist."
-  fi
+    else
+        echo "File ~/docker/home-work/.gitconfig does not exist."
+    fi
 }
 
 function delete_containers_with_prefix() {
-  local PREFIX=$1
+    local PREFIX=$1
 
-  # 获取具有特定前缀的容器ID列表
-  CONTAINERS=$(docker ps -a --filter "name=${PREFIX}" --format "{{.ID}}")
+    # 获取具有特定前缀的容器ID列表
+    CONTAINER_NAME=$(docker ps -a --filter "name=${PREFIX}" --format "{{.ID}}")
 
-  if [ -z "$CONTAINERS" ]; then
-    echo "No containers found with prefix '${PREFIX}'"
-  else
-    echo "Found containers with prefix '${PREFIX}':"
-    echo "$CONTAINERS"
-
-    # 删除找到的容器
-    docker rm -f $CONTAINERS
-    if [ $? -eq 0 ]; then
-      echo "Successfully deleted containers with prefix '${PREFIX}'"
+    if [ -z "$CONTAINER_NAME" ]; then
+        echo "No containers found with prefix '${PREFIX}'"
     else
-      echo "Failed to delete some containers"
+        echo "Found containers with prefix '${PREFIX}':"
+        echo "$CONTAINER_NAME"
+
+        # 删除找到的容器
+        docker stop $CONTAINER_NAME >/dev/null || { echo "Failed to stop container"; exit 1; }
+        docker rm -f $CONTAINER_NAME >/dev/null || { echo "Failed to remove container"; exit 1; }
     fi
-  fi
 }
+
+#########################################################################
+#########################################################################
 
 set -e  # 如果任何命令失败，则终止脚本
 
-# 函数：检查命令是否成功
-check_success() {
-    if [ $? -ne 0 ]; then
-        echo "Error: $1"
-        exit 1
-    fi
-}
+# 处理脚本参数
+if [ $# -gt 0 ]; then
+    TARGET_NAME="$1"
+else
+    TARGET_NAME="hmcc"
+fi
+
+if [ ${TARGET_NAME} = "hmcc" ];then
+    IMAGE_NAME="mattlu/work-dev:latest"
+    CONTAINER_NAME="$(whoami).mlir"
+else
+    IMAGE_NAME="lizhi.lu/tvm-dev:latest"
+    CONTAINER_NAME="$(whoami).tvm"
+fi
 
 # 1.生成 SSH 密钥对
 if [ ! -f ~/.ssh/id_ed25519 ]; then
@@ -92,11 +105,11 @@ else
 fi
 
 # 2.克隆 luluman docker 仓库
-if [ ! -d ./docker ] && [ ! -d ~/.docker ]; then
+if [ ! -d ./docker ] && [ ! -d ~/.docker_${TARGET_NAME} ]; then
     git clone git@github.com:luluman/docker.git
     check_success "Failed to clone the repository 'docker'"
 else
-    echo "Directory ~/.docker or ./docker already exists."
+    echo "Directory ~/.docker_${TARGET_NAME} or ./docker already exists."
 fi
 
 # 3.检查并进入 docker/home-work 目录
@@ -105,9 +118,8 @@ if [ -d ./docker/home-work ]; then
 
     # 克隆 emacs.d 仓库
     if [ ! -d .emacs.d ]; then
-        git clone git@github.com:lulzsec2012/emacs.d.git --recursive
+        git clone git@github.com:lulzsec2012/emacs.d.git --recursive .emacs.d
         check_success "Failed to clone the repository 'emacs.d'"
-        mv emacs.d .emacs.d
     else
         echo "Directory .emacs.d already exists."
     fi
@@ -139,12 +151,27 @@ if [ -d ./docker/home-work ]; then
     popd
 
     # 构建新docker镜像，修改启动脚本
-    if [ -f ./docker.sh ]; then
-      ./docker.sh
+    if [ ${TARGET_NAME} = "hmcc" ] || [ ${TARGET_NAME} = "mlir" ] ;then
+        if [ -f ./docker.sh ]; then
+            ./docker.sh
+        fi
+    else
+        cp start.sh docker/run.sh
+    fi
+
+
+    # 拷贝授权Keys
+    if [ -d ./data ]; then
+      if [ -f data/.authinfo ]; then
+        cp data/.authinfo docker/home-work/ -f
+      fi
+      if [ -f data/vpn.cfg ]; then
+        cp data/vpn.cfg  docker/home-work/.ssh/ -f
+      fi
     fi
 
     # 重命名docker目录
-    rm ~/.docker -rf && mv ./docker ~/.docker
+    rm ~/.docker_${TARGET_NAME} -rf && mv ./docker ~/.docker_${TARGET_NAME}
 else
     echo "Directory ~/docker/home-work does not exist."
 fi
@@ -152,9 +179,8 @@ fi
 # 4.修改并重新加载 .bashrc
 if [ ! -f ~/.bashrc ]; then
     echo "File ~/.bashrc does not exist. Creating a new one."
-    cp ~/.docker/home-work/.bashrc ~/.bashrc
-
-    sed -i '$ a source ~/.docker/run.sh' ~/.bashrc
+    cp ~/.docker_${TARGET_NAME}/home-work/.bashrc ~/.bashrc
+    sed -i "$ a source ${PWD}/run.sh" ~/.bashrc
 fi
 
 echo "Script executed successfully."
@@ -164,4 +190,4 @@ echo "Script executed successfully."
 
 # 5.检查并删除具有特定前缀的 Docker 容器
 # 设置容器名字前缀
-delete_containers_with_prefix ${USER}
+delete_containers_with_prefix ${CONTAINER_NAME}
