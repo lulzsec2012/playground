@@ -38,6 +38,7 @@ RUN apt-get update && \
     apt-utils \
     texinfo \
     libgccjit-10-dev \
+    shellcheck \
     # perf
     linux-tools-generic \
     linux-tools-common \

@@ -18,6 +18,7 @@ RUN apt-get update && \
     apt-get install -y \
     vim \
     guake \
+    shellcheck \
     # perf
     linux-tools-generic \
     linux-tools-common \

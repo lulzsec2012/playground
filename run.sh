@@ -53,19 +53,17 @@ function tvm-linux-server() {
     local workspace; workspace=$(realpath ~/workspace)
     local share; share=$(realpath ~/share)
     local tmp; tmp=$(realpath ~/.docker_tvm/tmp)
-    local opt; opt=$(realpath ~/.docker_tvm/opt)
     local data; data=$(realpath /develop01)
 
     docker run -t \
            --privileged \
            --log-driver=none \
-           --hostname="D$(hostname)" \
+           --hostname="T$(hostname)" \
            --name "${USER}-tvm-server" \
            --detach-keys "ctrl-^,ctrl-@" \
            --volume="${home}:${HOME}":delegated \
            --volume="${workspace}:/workspace":cached \
            --volume="${tmp}:/tmp":cached \
-           --volume="${opt}:/opt":cached \
            --volume="${data}:${data}":cached \
            --volume="${share}:/share:ro" \
            --volume="/etc/group:/etc/group:ro" \
