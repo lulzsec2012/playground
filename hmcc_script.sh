@@ -26,24 +26,24 @@ else
   HOME_PREFIX=~/
 fi
 HOME_PREFIX=$(realpath $HOME_PREFIX)
-echo $HOME_PREFIX
+echo "$HOME_PREFIX"
 
-pushd $HOME_PREFIX
+pushd "$HOME_PREFIX" || exit
 
 mkdir -p work
-pushd work
+pushd work || exit
 
 # Download hmcc
 # export GIT_DISCOVERY_ACROSS_FILESYSTEM=1
 git clone "ssh://lizhi.lu@gerrit.houmo.ai:29418/toolchain/hmcc" && scp -p -P 29418 lizhi.lu@gerrit.houmo.ai:hooks/commit-msg "hmcc/.git/hooks/"
 
-pushd hmcc
+pushd hmcc || exit
 #git submodule update --init --recursive -f
 add_clangd
-popd
+popd || exit
 
-popd
+popd || exit
 
-popd
+popd || exit
 
 pip install numpy onnx pybind11 pytest graphviz jinja2 matplotlib torch black

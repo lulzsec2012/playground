@@ -2,7 +2,7 @@
 
 # 函数：检查命令是否成功
 check_success() {
-    if [ $? -ne 0 ]; then
+    if [ $? ]; then
         echo "Error: $1"
         exit 1
     fi
@@ -70,8 +70,8 @@ function delete_containers_with_prefix() {
         echo "$CONTAINER_NAME"
 
         # 删除找到的容器
-        docker stop $CONTAINER_NAME >/dev/null || { echo "Failed to stop container"; exit 1; }
-        docker rm -f $CONTAINER_NAME >/dev/null || { echo "Failed to remove container"; exit 1; }
+        docker stop "$CONTAINER_NAME" >/dev/null || { echo "Failed to stop container"; exit 1; }
+        docker rm -f "$CONTAINER_NAME" >/dev/null || { echo "Failed to remove container"; exit 1; }
     fi
 }
 
@@ -88,10 +88,8 @@ else
 fi
 
 if [ ${TARGET_NAME} = "hmcc" ];then
-    IMAGE_NAME="mattlu/work-dev:latest"
     CONTAINER_NAME="$(whoami).mlir"
 else
-    IMAGE_NAME="lizhi.lu/tvm-dev:latest"
     CONTAINER_NAME="$(whoami).tvm"
 fi
 
@@ -129,7 +127,7 @@ if [ -d ./docker/home-work ]; then
         sed -i '$ a alias emacs-D="emacs --daemon=lizhi.lu"' .bashrc
         sed -i '$ a alias emacs-C="emacsclient -s lizhi.lu -c"' .bashrc
         sed -i '$ a alias sshhome="ssh lzlu@4544a6914s.wicp.vip -p 21509"' .bashrc
-        sed -i '$ a export PATH="$HOME/.local/bin:$PATH"' .bashrc
+        sed -i "\$ a export PATH=\"\$HOME/.local/bin:\$PATH\"" .bashrc
         sed -i '$ a rm .emacs.d/elpa/symon-20170224.833/symon.elc -f' .bashrc
         sed -i '$ a #-i https://pypi.tuna.tsinghua.edu.cn/simple' .bashrc
     else
@@ -162,12 +160,16 @@ if [ -d ./docker/home-work ]; then
 
     # 拷贝授权Keys
     if [ -d ./data ]; then
-      if [ -f data/.authinfo ]; then
-        cp data/.authinfo docker/home-work/ -f
-      fi
-      if [ -f data/vpn.cfg ]; then
-        cp data/vpn.cfg  docker/home-work/.ssh/ -f
-      fi
+        if [ -f data/.authinfo ]; then
+            cp data/.authinfo docker/home-work/ -f
+        fi
+        if [ -f data/vpn.cfg ]; then
+            cp data/vpn.cfg  docker/home-work/.ssh/ -f
+        fi
+        if [ -f data/clash_config.yaml ]; then
+            cp data/clash_config.yaml docker/opt/ -f
+        fi
+
     fi
 
     # 重命名docker目录
@@ -190,4 +192,4 @@ echo "Script executed successfully."
 
 # 5.检查并删除具有特定前缀的 Docker 容器
 # 设置容器名字前缀
-delete_containers_with_prefix ${CONTAINER_NAME}
+delete_containers_with_prefix "$CONTAINER_NAME"

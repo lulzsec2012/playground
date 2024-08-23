@@ -17,14 +17,14 @@ if [  -n "$(docker images -q $base_image)" ]; then
 else
   echo "Docker 镜像 $base_image 不存在，正在拉取..."
   docker pull $base_image
-  if [ $? -ne 0 ]; then
+  if [ $? ]; then
     echo "无法拉取 Docker 镜像 $base_image."
     exit 1
   fi
 fi
 
 # 检查 ALEX_IMAGE 镜像是否存在
-if [ ! -n "$(docker images -q $alex_image)" ]; then
+if [ -z "$(docker images -q $alex_image)" ]; then
   echo "Docker 镜像 $alex_image 不存在。构建该镜像..."
   docker build -t $alex_image -f work.Dockerfile .
 else
