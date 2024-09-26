@@ -1,8 +1,31 @@
 #!/bin/bash
 
+execute_with_retry() {
+    local command="$*"   # 待执行的命令
+    local max_attempts=5 # 最大尝试次数
+    local attempt=1      # 当前尝试次数
+
+    while (( attempt <= max_attempts )); do
+        echo "第 $attempt 次尝试执行命令: $command"
+        eval "$command"
+
+        if [[ $? -eq 0 ]]; then
+            echo "success！"
+            return 0
+        else
+            echo "failure！"
+        fi
+
+        ((attempt++))
+        sleep 2
+    done
+
+    return 1
+}
+
 # 函数：检查命令是否成功
 check_success() {
-    if [ $? ]; then
+    if [ $? -ne 0 ]; then
         echo "Error: $1"
         exit 1
     fi
@@ -104,7 +127,7 @@ fi
 
 # 2.克隆 luluman docker 仓库
 if [ ! -d ./docker ] && [ ! -d ~/.docker_${TARGET_NAME} ]; then
-    git clone git@github.com:luluman/docker.git
+    execute_with_retry git clone git@github.com:luluman/docker.git
     check_success "Failed to clone the repository 'docker'"
 else
     echo "Directory ~/.docker_${TARGET_NAME} or ./docker already exists."
@@ -116,7 +139,7 @@ if [ -d ./docker/home-work ]; then
 
     # 克隆 emacs.d 仓库
     if [ ! -d .emacs.d ]; then
-        git clone git@github.com:lulzsec2012/emacs.d.git --recursive .emacs.d
+        execute_with_retry git clone git@github.com:lulzsec2012/emacs.d.git --recursive .emacs.d
         check_success "Failed to clone the repository 'emacs.d'"
     else
         echo "Directory .emacs.d already exists."

@@ -35,6 +35,7 @@ function work-linux-server() {
 }
 
 function work-linux-server-exec() {
+    #docker cp ~/.ssh "${USER}-work-server":/home/$(whoami)/ && \
     docker exec -ti --user ${UID} \
            --detach-keys "ctrl-^,ctrl-@" \
            "${USER}-work-server" /bin/bash
