@@ -205,8 +205,8 @@ fi
 if [ ! -f ~/.bashrc ]; then
     echo "File ~/.bashrc does not exist. Creating a new one."
     cp ~/.docker_${TARGET_NAME}/home-work/.bashrc ~/.bashrc
-    sed -i "$ a source ${PWD}/run.sh" ~/.bashrc
 fi
+sed -i "$ a source ${PWD}/run.sh" ~/.bashrc
 
 echo "Script executed successfully."
 
