@@ -46,4 +46,6 @@ popd || exit
 
 popd || exit
 
-pip install numpy onnx pybind11 pytest graphviz jinja2 matplotlib torch black
+pip install numpy onnx pybind11 pytest graphviz jinja2 matplotlib torch black psutil tushare pylint tabulate openpyxl cmake-format loguru transformers
+sudo apt install shellcheck
+sudo apt install manpages manpages-dev manpages-posix manpages-posix-dev

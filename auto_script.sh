@@ -1,21 +1,11 @@
 #!/bin/bash
 
 execute_with_retry() {
-    local command="$*"   # 待执行的命令
-    local max_attempts=5 # 最大尝试次数
-    local attempt=1      # 当前尝试次数
+    local command="$*" max_attempts=5 attempt=1
 
-    while (( attempt <= max_attempts )); do
+    until (( attempt > max_attempts )); do
         echo "第 $attempt 次尝试执行命令: $command"
-        eval "$command"
-
-        if [[ $? -eq 0 ]]; then
-            echo "success！"
-            return 0
-        else
-            echo "failure！"
-        fi
-
+        eval "$command" && { echo "success！"; return 0; } || echo "failure！"
         ((attempt++))
         sleep 2
     done
@@ -48,7 +38,7 @@ EOL
     fi
 }
 
-function config_pip_mirror() {
+function config_pip() {
     mkdir -p ./.pip
 
     # 写入配置文件
@@ -62,10 +52,12 @@ EOL
     echo "Pip配置已更新为阿里云镜像源。"
 }
 
-function gitconfig() {
-    # 检查 .gitconfig 是否存在并编辑
-    if [ -f .gitconfig ]; then
-        cat <<EOT >> .gitconfig
+function config_git() {
+    cat > .gitconfig <<EOT
+[http]
+	# proxy = socks5h://127.0.0.1:7891
+[https]
+	# proxy = socks5h://127.0.0.1:7891
 [alias]
 	br = branch
 	ci = commit
@@ -75,9 +67,6 @@ function gitconfig() {
 	name = lizhi lu
 	email = lizhi.lu@houmo.ai
 EOT
-    else
-        echo "File ~/docker/home-work/.gitconfig does not exist."
-    fi
 }
 
 function delete_containers_with_prefix() {
@@ -158,10 +147,10 @@ if [ -d ./docker/home-work ]; then
     fi
 
     # 配置git用户信息，alias
-    gitconfig
+    config_git
 
     # 配置pip国内源
-    config_pip_mirror
+    config_pip
 
     # 新增.profile文件
     add_profile
@@ -173,9 +162,10 @@ if [ -d ./docker/home-work ]; then
 
     # 构建新docker镜像，修改启动脚本
     if [ ${TARGET_NAME} = "hmcc" ] || [ ${TARGET_NAME} = "mlir" ] ;then
-        if [ -f ./docker.sh ]; then
-            ./docker.sh
-        fi
+        :
+        # if [ -f ./docker.sh ]; then
+        #     ./docker.sh
+        # fi
     else
         cp start.sh docker/run.sh
     fi
