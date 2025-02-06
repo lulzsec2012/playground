@@ -27,6 +27,9 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+RUN pip install numpy onnx pybind11 pytest graphviz jinja2 matplotlib torch black psutil \
+    tushare pylint tabulate openpyxl cmake-format loguru transformers
+
 # ============================================================
 # setup SSH server
 RUN sed -i /etc/ssh/sshd_config \
