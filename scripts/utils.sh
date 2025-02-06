@@ -84,16 +84,16 @@ function delete_containers_with_prefix() {
     local PREFIX=$1
 
     # 获取具有特定前缀的容器ID列表
-    CONTAINER_NAME=$(docker ps -a --filter "name=${PREFIX}" --format "{{.ID}}")
+    container_name=$(docker ps -a --filter "name=${PREFIX}" --format "{{.ID}}")
 
-    if [ -z "$CONTAINER_NAME" ]; then
+    if [ -z "$container_name" ]; then
         echo "No containers found with prefix '${PREFIX}'"
     else
         echo "Found containers with prefix '${PREFIX}':"
-        echo "$CONTAINER_NAME"
+        echo "$container_name"
 
         # 删除找到的容器
-        docker stop "$CONTAINER_NAME" >/dev/null || { echo "Failed to stop container"; exit 1; }
-        docker rm -f "$CONTAINER_NAME" >/dev/null || { echo "Failed to remove container"; exit 1; }
+        docker stop "$container_name" >/dev/null || { echo "Failed to stop container"; exit 1; }
+        docker rm -f "$container_name" >/dev/null || { echo "Failed to remove container"; exit 1; }
     fi
 }

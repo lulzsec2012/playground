@@ -1,48 +1,49 @@
 #!/bin/bash
 
-base_name="mattlu"
-base_name2="man.lu"
-alex_name="lizhi.lu"
+# Define variables
+BASE_IMAGE="mattlu/work-dev:latest"
+ALEX_IMAGE="${BASE_IMAGE//mattlu/lizhi.lu}"
 
-base_image="mattlu/work-dev:latest"
-alex_image="${base_image//$base_name/$alex_name}"
+echo "BASE_IMAGE: $BASE_IMAGE"
+# echo "ALEX_IMAGE: $ALEX_IMAGE"
 
-echo "BASE_IMAGE: $base_image"
-echo "ALEX_IMAGE: $alex_image"
+rm -rf docker-drag && git clone https://github.com/NotGlop/docker-drag.git
 
-# 检查 BASE_IMAGE 镜像是否存在
-if [  -n "$(docker images -q $base_image)" ]; then
-  echo "Docker 镜像 $base_image 已存在。拉取最新镜像..."
-  docker pull $base_image
+# Check if the local image exists
+if docker images -q "$BASE_IMAGE" > /dev/null 2>&1; then
+    echo "Local image exists, checking version..."
+
+    # Get local image ID
+    local_version=$(docker inspect --format='{{.Id}}' "$BASE_IMAGE")
+
+    # Get remote image ID
+    remote_version=$(docker inspect --format='{{.Id}}' "$BASE_IMAGE" --all 2>/dev/null)
+
+    # Check if local version matches remote version
+    if [ "$local_version" == "$remote_version" ]; then
+        echo "Local image version matches remote version, skipping download."
+        exit 0
+    fi
 else
-  echo "Docker 镜像 $base_image 不存在，正在拉取..."
-  docker pull $base_image
-  if [ $? ]; then
-    echo "无法拉取 Docker 镜像 $base_image."
-    exit 1
-  fi
+    echo "Local image does not exist, preparing to download..."
 fi
 
-# 检查 ALEX_IMAGE 镜像是否存在
-if [ -z "$(docker images -q $alex_image)" ]; then
-  echo "Docker 镜像 $alex_image 不存在。构建该镜像..."
-  docker build -t $alex_image -f work.Dockerfile .
+# Try to download the image using docker pull
+if docker pull "$BASE_IMAGE"; then
+    echo "docker pull succeeded!"
 else
-  echo "Docker 镜像 $alex_image 已存在."
+    echo "docker pull failed, trying to download with docker-drag..."
+
+    # Use docker-drag to download the image
+    if python3 docker-drag/docker_pull.py "$BASE_IMAGE"; then
+        echo "docker-drag download succeeded, importing image..."
+        docker load -i "${BASE_IMAGE}.tar"
+    else
+        echo "docker-drag download failed!"
+        exit 1
+    fi
 fi
 
-# run_script="./docker/run.sh"
-# if [ -f "$run_script" ]; then
-#   echo "更新运行脚本中的用户名..."
-#   sed -i "s/$base_name/$alex_name/g" "$run_script"
-#   sed -i "s/$base_name2/$alex_name/g" "$run_script"
-#   if [ $? -eq 0 ]; then
-#     echo "运行脚本更新成功."
-#   else
-#     echo "更新运行脚本失败."
-#     exit 1
-#   fi
-# else
-#   echo "运行脚本 $run_script 不存在."
-#   exit 1
-# fi
+# echo "构建镜像: $ALEX_IMAGE ..."
+# docker build -t $ALEX_IMAGE -f work.Dockerfile .
+# exit 0

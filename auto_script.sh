@@ -4,18 +4,18 @@ source ./scripts/utils.sh
 set -e  # 如果任何命令失败，则终止脚本
 
 # 处理脚本参数
-TARGET_NAME="${1:-hmcc}"
-CONTAINER_NAME="$(whoami).${TARGET_NAME}"
-
+target_name="${1:-hmcc}"
+container_name="$(whoami).${target_name}"
+echo "container_name: ${container_name}"
 # 1.生成 SSH 密钥对
 setup_ssh_keys
 
 # 2.克隆 luluman docker 仓库
-if [ ! -d ./docker ] && [ ! -d ~/.docker_${TARGET_NAME} ]; then
+if [ ! -d ./docker ] && [ ! -d ~/.docker_${target_name} ]; then
     execute_with_retry git clone git@github.com:luluman/docker.git
     check_success "Failed to clone the repository 'docker'"
 else
-    echo "Directory ~/.docker_${TARGET_NAME} or ./docker already exists."
+    echo "Directory ~/.docker_${target_name} or ./docker already exists."
 fi
 
 # 3.检查并进入 docker/home-work 目录
@@ -57,7 +57,7 @@ if [ -d ./docker/home-work ]; then
     popd
 
     # 构建新docker镜像，修改启动脚本
-    if [ ${TARGET_NAME} = "hmcc" ] || [ ${TARGET_NAME} = "mlir" ] ;then
+    if [ ${target_name} = "hmcc" ] || [ ${target_name} = "mlir" ] ;then
         :
         # if [ -f ./docker.sh ]; then
         #     ./docker.sh
@@ -82,7 +82,7 @@ if [ -d ./docker/home-work ]; then
     fi
 
     # 重命名docker目录
-    rm ~/.docker_${TARGET_NAME} -rf && mv ./docker ~/.docker_${TARGET_NAME}
+    rm ~/.docker_${target_name} -rf && mv ./docker ~/.docker_${target_name}
 else
     echo "Directory ~/docker/home-work does not exist."
 fi
@@ -90,7 +90,7 @@ fi
 # 4.修改并重新加载 .bashrc
 if [ ! -f ~/.bashrc ]; then
     echo "File ~/.bashrc does not exist. Creating a new one."
-    cp ~/.docker_${TARGET_NAME}/home-work/.bashrc ~/.bashrc
+    cp ~/.docker_${target_name}/home-work/.bashrc ~/.bashrc
 fi
 
 LINE="source ${PWD}/run.sh"
@@ -104,5 +104,4 @@ echo "Script executed successfully."
 # exec bash --rcfile <(cat ~/.bashrc; echo "source ~/.docker/run.sh")
 
 # 5.检查并删除具有特定前缀的 Docker 容器
-# 设置容器名字前缀
-delete_containers_with_prefix "$CONTAINER_NAME"
+delete_containers_with_prefix "$container_name"
