@@ -11,7 +11,7 @@ echo "container_name: ${container_name}"
 setup_ssh_keys
 
 # 2.克隆 luluman docker 仓库
-if [ ! -d ./docker ] && [ ! -d ~/.docker_${target_name} ]; then
+if [ ! -d ./docker ] && [ ! -d ~/.docker_"${target_name}" ]; then
     execute_with_retry git clone git@github.com:luluman/docker.git
     check_success "Failed to clone the repository 'docker'"
 else
@@ -57,7 +57,7 @@ if [ -d ./docker/home-work ]; then
     popd
 
     # 构建新docker镜像，修改启动脚本
-    if [ ${target_name} = "hmcc" ] || [ ${target_name} = "mlir" ] ;then
+    if [ "${target_name}" = "hmcc" ] || [ "${target_name}" = "mlir" ] ;then
         :
         # if [ -f ./docker.sh ]; then
         #     ./docker.sh
@@ -76,13 +76,14 @@ if [ -d ./docker/home-work ]; then
             cp data/vpn.cfg  docker/home-work/.ssh/ -f
         fi
         if [ -f data/clash_config.yaml ]; then
+            mkdir -p docker/opt/
             cp data/clash_config.yaml docker/opt/ -f
         fi
 
     fi
 
     # 重命名docker目录
-    rm ~/.docker_${target_name} -rf && mv ./docker ~/.docker_${target_name}
+    rm ~/.docker_"${target_name}" -rf && mv ./docker ~/.docker_"${target_name}"
 else
     echo "Directory ~/docker/home-work does not exist."
 fi
@@ -90,7 +91,7 @@ fi
 # 4.修改并重新加载 .bashrc
 if [ ! -f ~/.bashrc ]; then
     echo "File ~/.bashrc does not exist. Creating a new one."
-    cp ~/.docker_${target_name}/home-work/.bashrc ~/.bashrc
+    cp ~/.docker_"${target_name}"/home-work/.bashrc ~/.bashrc
 fi
 
 LINE="source ${PWD}/run.sh"

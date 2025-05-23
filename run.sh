@@ -8,7 +8,13 @@ function work-linux-server() {
     local workspace; workspace="${HOME}/workspace"
     local share; share="${HOME}/share"
     local opt; opt="$HOME/.docker_hmcc/opt"
+    local etc; etc="$HOME/.docker_hmcc/etc"
     local data; data=$(realpath /develop01)
+
+    mkdir -p "$etc"
+    getent passwd > "$etc/passwd"
+    getent group > "$etc/group"
+    getent shadow > "$etc/shadow"
 
     docker run -it \
            --privileged \
@@ -21,9 +27,9 @@ function work-linux-server() {
            --volume="${opt}:/opt":cached \
            --volume="${data}:${data}":cached \
            --volume="${share}:/share:ro" \
-           --volume="/etc/group:/etc/group:ro" \
-           --volume="/etc/passwd:/etc/passwd:ro" \
-           --volume="/etc/shadow:/etc/shadow:ro" \
+           --volume="$etc/group:/etc/group:ro" \
+           --volume="$etc/passwd:/etc/passwd:ro" \
+           --volume="$etc/shadow:/etc/shadow:ro" \
            --volume=/var/run/docker.sock:/var/run/docker.sock \
            --env-file "${home}/.ssh/vpn.cfg" \
            --detach \
