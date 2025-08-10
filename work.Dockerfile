@@ -1,51 +1,57 @@
-ARG UBUNTU_VERSION=20.04
-ARG UBUNTU_NAME=focal
+# 单阶段优化版（保留完整开发环境）
+FROM mattlu/work-dev
+
+# 设置非交互式前端（避免apt安装时提示）
 ARG DEBIAN_FRONTEND="noninteractive"
 
-# ********************************************************************************
-#
-# satge 0
-# ********************************************************************************
-
-FROM mattlu/work-dev AS builder0
-ARG UBUNTU_NAME
-ARG DEBIAN_FRONTEND
-
+# 1. 合并所有apt-get操作为一个RUN指令
 RUN apt-get update && \
-    apt-get install -y software-properties-common gpg-agent && \
+    apt-get install -y --no-install-recommends \
+        software-properties-common \
+        gpg-agent \
+        vim \
+        guake \
+        shellcheck \
+        linux-tools-generic \
+        linux-tools-common \
+        linux-cloud-tools-generic \
+        sudo && \
     apt-add-repository ppa:ubuntu-toolchain-r/test && \
     apt-get update && \
-    apt-get install -y \
-    vim \
-    guake \
-    shellcheck \
-    # perf
-    linux-tools-generic \
-    linux-tools-common \
-    linux-cloud-tools-generic \
-    && \
+    # 清理缓存
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install numpy onnx pybind11 pytest graphviz jinja2 matplotlib torch black psutil \
-    tushare pylint tabulate openpyxl cmake-format loguru transformers
+# 2. 优化pip安装（先安装，后清理缓存）
+RUN pip install \
+        numpy \
+        onnx \
+        pybind11 \
+        pytest \
+        graphviz \
+        jinja2 \
+        matplotlib \
+        torch \
+        black \
+        psutil \
+        tushare \
+        pylint \
+        tabulate \
+        openpyxl \
+        cmake-format \
+        loguru \
+        transformers && \
+    pip cache purge
 
-# ============================================================
-# setup SSH server
+# 3. SSH服务配置优化
 RUN sed -i /etc/ssh/sshd_config \
-    -e 's/#PermitRootLogin.*/PermitRootLogin no/' \
-    -e 's/#RSAAuthentication.*/RSAAuthentication yes/'  \
-    -e 's/#PasswordAuthentication.*/PasswordAuthentication yes/'
+    -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' \
+    -e 's/^#\?Port.*/Port 22/' 
 
-# 安装sudo工具
-RUN apt-get update && apt-get install -y sudo
-
-# # 将用户xxx添加到sudo组
-# RUN usermod -aG sudo lizhi.lu
-
-# 允许sudo组成员执行sudo命令
+# 4. 用户权限设置
 RUN echo 'lizhi.lu ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN echo 'lulizhi ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-CMD "start.sh"
-
+# 5. 设置工作目录和启动命令
 WORKDIR /workspace
+CMD ["start.sh"]

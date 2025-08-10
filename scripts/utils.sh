@@ -75,8 +75,8 @@ function config_git() {
 	co = checkout
 	st = status
 [user]
-	name = lizhi lu
-	email = lizhi.lu@houmo.ai
+	name = lulizhi
+	email = lulizhi@macrobt.com
 EOT
 }
 

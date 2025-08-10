@@ -76,7 +76,7 @@ if [ -d ./docker/home-work ]; then
             cp data/vpn.cfg  docker/home-work/.ssh/ -f
         fi
         if [ -f data/clash_config.yaml ]; then
-            mkdir -p docker/opt/
+            mkdir -p docker/opt
             cp data/clash_config.yaml docker/opt/ -f
         fi
 
