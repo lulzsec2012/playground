@@ -41,13 +41,22 @@ else
     echo "本地基础镜像已存在，跳过下载"
 fi
 
-# 删除已存在的目标镜像
-if docker images -q "$ALEX_IMAGE" > /dev/null 2>&1; then
+# 更精确的检查镜像是否存在
+if docker inspect --type=image "$ALEX_IMAGE" >/dev/null 2>&1; then
     echo "发现已存在的目标镜像，正在删除..."
-    if ! docker rmi "$ALEX_IMAGE"; then
+    
+    # 尝试强制删除（会解除关联的容器）
+    if ! docker rmi -f "$ALEX_IMAGE" 2>/dev/null; then
         echo "警告: 无法删除现有镜像，可能正在被使用"
-        # 不退出，继续尝试构建
+        
+        # 获取使用该镜像的容器ID
+        used_by=$(docker ps -a --filter "ancestor=$ALEX_IMAGE" --format '{{.ID}}')
+        if [ -n "$used_by" ]; then
+            echo "镜像被以下容器使用: $used_by"
+        fi
     fi
+else
+    echo "目标镜像不存在，无需删除"
 fi
 
 # 构建最终镜像

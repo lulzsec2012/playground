@@ -25,13 +25,11 @@ RUN apt-get update && \
 # 2. 优化pip安装（先安装，后清理缓存）
 RUN pip install \
         numpy \
-        onnx \
         pybind11 \
         pytest \
         graphviz \
         jinja2 \
         matplotlib \
-        torch \
         black \
         psutil \
         tushare \
@@ -39,19 +37,21 @@ RUN pip install \
         tabulate \
         openpyxl \
         cmake-format \
-        loguru \
-        transformers && \
+        loguru  && \
     pip cache purge
+    # onnx torch transformers
 
 # 3. SSH服务配置优化
 RUN sed -i /etc/ssh/sshd_config \
-    -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' \
-    -e 's/^#\?Port.*/Port 22/' 
-
+    -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' \
+    -e 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' \
+    -e 's/^#\?Port.*/Port 22/'
+    
 # 4. 用户权限设置
-RUN echo 'lizhi.lu ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-RUN echo 'lulizhi ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+# RUN echo 'lizhi.lu ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+# RUN echo 'lulizhi ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # 5. 设置工作目录和启动命令
 WORKDIR /workspace
-CMD ["start.sh"]
+COPY scripts/start.sh /usr/bin/start.sh
+CMD "start.sh"
