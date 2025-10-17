@@ -48,8 +48,8 @@ RUN sed -i /etc/ssh/sshd_config \
     -e 's/^#\?Port.*/Port 22/'
     
 # 4. 用户权限设置
-# RUN echo 'lizhi.lu ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-# RUN echo 'lulizhi ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN echo 'lizhi.lu ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN echo 'lulizhi ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # 5. 设置工作目录和启动命令
 WORKDIR /workspace

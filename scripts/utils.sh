@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # 重试执行命令
-execute_with_retry() {
-    local command="$*" max_attempts=5 attempt=1
+clone_with_retry() {
+    local command="git clone " + "$*"
+    max_attempts=5 attempt=1
 
     until (( attempt > max_attempts )); do
         echo "第 $attempt 次尝试执行命令: $command"

@@ -12,7 +12,7 @@ setup_ssh_keys
 
 # 2.克隆 luluman docker 仓库
 if [ ! -d ./docker ] && [ ! -d ~/.docker_"${target_name}" ]; then
-    execute_with_retry git clone git@github.com:luluman/docker.git
+    clone_with_retry git@github.com:luluman/docker.git
     check_success "Failed to clone the repository 'docker'"
 else
     echo "Directory ~/.docker_${target_name} or ./docker already exists."
@@ -24,7 +24,7 @@ if [ -d ./docker/home-work ]; then
 
     # 克隆 emacs.d 仓库
     if [ ! -d .emacs.d ]; then
-        execute_with_retry git clone git@github.com:lulzsec2012/emacs.d.git --recursive .emacs.d
+        clone_with_retry git@github.com:lulzsec2012/emacs.d.git --recursive .emacs.d
         check_success "Failed to clone the repository 'emacs.d'"
     else
         echo "Directory .emacs.d already exists."
@@ -59,9 +59,9 @@ if [ -d ./docker/home-work ]; then
     # 构建新docker镜像，修改启动脚本
     if [ "${target_name}" = "hmcc" ] || [ "${target_name}" = "mlir" ] ;then
         :
-        # if [ -f ./docker.sh ]; then
-        #     ./docker.sh
-        # fi
+        if [ -f ./scripts/docker.sh ]; then
+            ./docker.sh
+        fi
     else
         cp start.sh docker/run.sh
     fi
