@@ -3,19 +3,15 @@ source ./scripts/utils.sh
 
 set -e  # 如果任何命令失败，则终止脚本
 
-# 处理脚本参数
-target_name="${1:-hmcc}"
-container_name="$(whoami).${target_name}"
-echo "container_name: ${container_name}"
 # 1.生成 SSH 密钥对
 setup_ssh_keys
 
 # 2.克隆 luluman docker 仓库
-if [ ! -d ./docker ] && [ ! -d ~/.docker_"${target_name}" ]; then
+if [ ! -d ./docker ] ; then
     clone_with_retry git@github.com:luluman/docker.git
     check_success "Failed to clone the repository 'docker'"
 else
-    echo "Directory ~/.docker_${target_name} or ./docker already exists."
+    echo "Directory ~/.docker already exists."
 fi
 
 # 3.检查并进入 docker/home-work 目录
@@ -24,7 +20,7 @@ if [ -d ./docker/home-work ]; then
 
     # 克隆 emacs.d 仓库
     if [ ! -d .emacs.d ]; then
-        clone_with_retry git@github.com:lulzsec2012/emacs.d.git --recursive .emacs.d
+        clone_with_retry git@github.com:lulzsec2012/emacs.d.git .emacs.d
         check_success "Failed to clone the repository 'emacs.d'"
     else
         echo "Directory .emacs.d already exists."
@@ -56,17 +52,6 @@ if [ -d ./docker/home-work ]; then
 
     popd
 
-    # 构建新docker镜像，修改启动脚本
-    if [ "${target_name}" = "hmcc" ] || [ "${target_name}" = "mlir" ] ;then
-        :
-        if [ -f ./scripts/docker.sh ]; then
-            ./docker.sh
-        fi
-    else
-        cp start.sh docker/run.sh
-    fi
-
-
     # 拷贝授权Keys
     if [ -d ./data ]; then
         if [ -f data/.authinfo ]; then
@@ -83,7 +68,7 @@ if [ -d ./docker/home-work ]; then
     fi
 
     # 重命名docker目录
-    rm ~/.docker_"${target_name}" -rf && mv ./docker ~/.docker_"${target_name}"
+    rm ~/.docker -rf && mv ./docker ~/.docker
 else
     echo "Directory ~/docker/home-work does not exist."
 fi
@@ -91,7 +76,7 @@ fi
 # 4.修改并重新加载 .bashrc
 if [ ! -f ~/.bashrc ]; then
     echo "File ~/.bashrc does not exist. Creating a new one."
-    cp ~/.docker_"${target_name}"/home-work/.bashrc ~/.bashrc
+    cp ~/.docker/home-work/.bashrc ~/.bashrc
 fi
 
 LINE="source ${PWD}/run.sh"
@@ -103,6 +88,3 @@ echo "Script executed successfully."
 
 # 在当前环境中执行
 # exec bash --rcfile <(cat ~/.bashrc; echo "source ~/.docker/run.sh")
-
-# 5.检查并删除具有特定前缀的 Docker 容器
-delete_containers_with_prefix "$container_name"

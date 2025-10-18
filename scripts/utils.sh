@@ -2,16 +2,33 @@
 
 # 重试执行命令
 clone_with_retry() {
-    local command="git clone " + "$*"
-    max_attempts=5 attempt=1
-
-    until (( attempt > max_attempts )); do
-        echo "第 $attempt 次尝试执行命令: $command"
-        eval "$command" && { echo "Success!"; return 0; } || echo "Failure!"
-        ((attempt++))
+    local repo_url="$1"
+    local target_dir="${2:-$(basename "$repo_url" .git)}"
+    local ssh_url="$repo_url"
+    local https_url="$repo_url"
+    
+    # URL转换逻辑
+    if [[ "$repo_url" == https://github.com/* ]]; then
+        ssh_url="git@github.com:${repo_url#https://github.com/}"
+    elif [[ "$repo_url" == git@github.com:* ]]; then
+        https_url="https://github.com/${repo_url#git@github.com:}"
+    elif [[ "$repo_url" != git@* && "$repo_url" != https://* ]]; then
+        ssh_url="git@github.com:${repo_url}"
+        https_url="https://github.com/${repo_url}"
+    fi
+    
+    for i in {1..3}; do
+        # SSH尝试
+        rm -rf "$target_dir" && echo "第 $((2*i-1)) 次(SSH): $ssh_url"
+        git clone --recursive "$ssh_url" "$target_dir" && { echo "成功!"; return 0; }
+        
+        # HTTPS尝试  
+        rm -rf "$target_dir" && echo "第 $((2*i)) 次(HTTPS): $https_url"
+        git clone --recursive "$https_url" "$target_dir" && { echo "成功!"; return 0; }
+        
         sleep 2
     done
-
+    
     return 1
 }
 
@@ -79,22 +96,4 @@ function config_git() {
 	name = lulizhi
 	email = lulizhi@macrobt.com
 EOT
-}
-
-function delete_containers_with_prefix() {
-    local PREFIX=$1
-
-    # 获取具有特定前缀的容器ID列表
-    container_name=$(docker ps -a --filter "name=${PREFIX}" --format "{{.ID}}")
-
-    if [ -z "$container_name" ]; then
-        echo "No containers found with prefix '${PREFIX}'"
-    else
-        echo "Found containers with prefix '${PREFIX}':"
-        echo "$container_name"
-
-        # 删除找到的容器
-        docker stop "$container_name" >/dev/null || { echo "Failed to stop container"; exit 1; }
-        docker rm -f "$container_name" >/dev/null || { echo "Failed to remove container"; exit 1; }
-    fi
 }
