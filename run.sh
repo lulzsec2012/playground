@@ -1,5 +1,27 @@
 #!/bin/bash
 
+# 使用绝对路径source
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+source "$PROJECT_ROOT/scripts/docker_image.sh"
+
+BASE_CPU_IMAGE="mattlu/work-dev:latest"
+ALEX_CPU_IMAGE="${BASE_CPU_IMAGE//mattlu/lizhi.lu}"
+BASE_GPU_IMAGE="mattlu/work-cuda-dev:cuda13.0-ubuntu22.04"
+ALEX_GPU_IMAGE="${BASE_GPU_IMAGE//mattlu/lizhi.lu}"
+
+build_cpu_image() {
+    (
+        cd "$(dirname "${BASH_SOURCE[0]}")" && build_warper "$BASE_CPU_IMAGE" "$ALEX_CPU_IMAGE"
+    )
+}
+
+build_gpu_image(){
+    (
+        cd "$(dirname "${BASH_SOURCE[0]}")" && build_warper "$BASE_GPU_IMAGE" "$ALEX_GPU_IMAGE"
+    )
+}
+
 function work-linux-server() {
     if [[ $# -gt 0 && "$1" == "-f" ]]; then
         docker container rm -f "${USER}-work-server"
@@ -79,13 +101,8 @@ function work-linux-cuda-server() {
 
     # List your shared dirs here (expand as needed)
     declare -a shared_dirs=(
-        "/share_data"
-        "/software_data"
-        "/data"
-        "/zjshare_data"
-        "/softhome"
+        "/mnt"
         "/share"
-        "/data_gpu"
     )
     for dir in "${shared_dirs[@]}"; do
         if [ -d "$dir" ]; then
@@ -113,7 +130,7 @@ function work-linux-cuda-server() {
         "${volumes[@]}" \
         --env-file "$base/home-work/.ssh/vpn.cfg" \
         --restart=always --detach \
-        mattlu/work-cuda-dev:cuda13.0-ubuntu22.04
+        lizhi.lu/work-cuda-dev:cuda13.0-ubuntu22.04
 
 }
 

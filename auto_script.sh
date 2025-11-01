@@ -1,6 +1,7 @@
 #!/bin/bash
 source ./scripts/utils.sh
 
+# set -x  # 跟踪执行命令
 set -e  # 如果任何命令失败，则终止脚本
 
 # 1.生成 SSH 密钥对
@@ -59,6 +60,10 @@ if [ -d ./docker/home-work ]; then
         fi
         if [ -f data/vpn.cfg ]; then
             cp data/vpn.cfg  docker/home-work/.ssh/ -f
+        fi
+        if [ -f data/ssh_keys.cfg ]; then
+            cp data/vpn.cfg  docker/home-work/.ssh/ -f
+            add_ssh_keys_from_config "data/ssh_keys.cfg" "docker/home-work/.ssh/authorized_keys"
         fi
         if [ -f data/clash_config.yaml ]; then
             mkdir -p docker/opt

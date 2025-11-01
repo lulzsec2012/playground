@@ -1,5 +1,5 @@
 # 单阶段优化版（保留完整开发环境）
-FROM mattlu/work-dev
+FROM BASE_IMAGE_PLACEHOLDER_STRING
 
 # 设置非交互式前端（避免apt安装时提示）
 ARG DEBIAN_FRONTEND="noninteractive"

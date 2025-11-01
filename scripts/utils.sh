@@ -97,3 +97,30 @@ function config_git() {
 	email = lulizhi@macrobt.com
 EOT
 }
+
+add_ssh_keys_from_config() {
+    local cfg="${1:?错误: 必须指定配置文件路径}"
+    local auth_keys="${2:-$HOME/.ssh/authorized_keys}"
+    
+    [ -f "$cfg" ] || { echo "错误: 配置文件 $cfg 不存在" >&2; return 1; }
+    
+    mkdir -p "$(dirname "$auth_keys")"
+    [ -f "$auth_keys" ] || touch "$auth_keys"
+    chmod 600 "$auth_keys"
+    
+    # 合并文件并去重
+    local original_count added_count final_count
+    original_count=$(grep -c '^[^#]' "$auth_keys" 2>/dev/null || echo 0)
+    
+    # 合并并去重，保留注释和空行
+    cat "$auth_keys" "$cfg" | awk '!/^#/ && NF >= 2 {print $1 " " $2 " " $3}' | sort | uniq > "${auth_keys}.tmp"
+    
+    # 计算添加的密钥数量
+    final_count=$(grep -c '^[^#]' "${auth_keys}.tmp" 2>/dev/null)
+    added_count=$((final_count - original_count))
+    
+    # 替换原文件
+    mv "${auth_keys}.tmp" "$auth_keys"
+    
+    echo "添加了 $added_count 个新密钥，现有 $final_count 个唯一密钥"
+}
