@@ -5,22 +5,40 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 source "$PROJECT_ROOT/scripts/docker_image.sh"
 
-BASE_CPU_IMAGE="mattlu/work-dev:latest"
-ALEX_CPU_IMAGE="${BASE_CPU_IMAGE//mattlu/lizhi.lu}"
-BASE_GPU_IMAGE="mattlu/work-cuda-dev:cuda13.0-ubuntu22.04"
-ALEX_GPU_IMAGE="${BASE_GPU_IMAGE//mattlu/lizhi.lu}"
-
 build_cpu_image() {
+    BASE_CPU_IMAGE="mattlu/work-dev:latest"
+    ALEX_CPU_IMAGE="${BASE_CPU_IMAGE//mattlu/lizhi.lu}"
     (
         cd "$(dirname "${BASH_SOURCE[0]}")" && build_warper "$BASE_CPU_IMAGE" "$ALEX_CPU_IMAGE"
     )
 }
 
 build_gpu_image(){
+    BASE_GPU_IMAGE="mattlu/work-cuda-dev:cuda13.0-ubuntu22.04"
+    ALEX_GPU_IMAGE="${BASE_GPU_IMAGE//mattlu/lizhi.lu}" 
     (
         cd "$(dirname "${BASH_SOURCE[0]}")" && build_warper "$BASE_GPU_IMAGE" "$ALEX_GPU_IMAGE"
     )
 }
+
+build_gpu_image_12.4(){
+    ALEX_GPU_IMAGE="lizhi.lu/work-cuda-dev:cuda12.4.1-ubuntu22.04"
+
+    git clone https://github.com/luluman/docker.git luluman_docker
+    (
+        cd "$(dirname "${BASH_SOURCE[0]}")/luluman_docker/" && (
+            local template_file="work-cuda.Dockerfile"
+            local target_file="${template_file}.temp"
+            local template_string="cuda:13.0.0-devel-ubuntu"
+            local replace_string="cuda:12.4.1-devel-ubuntu"
+            
+            generate_dockerfile "$template_file" "$target_file" "$template_string" "$replace_string" && \
+            build_image "$target_file" "$ALEX_GPU_IMAGE"
+        )
+    )
+    # rm -rf luluman_docker
+}
+
 
 function work-linux-server() {
     if [[ $# -gt 0 && "$1" == "-f" ]]; then

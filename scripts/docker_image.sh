@@ -43,8 +43,9 @@ pull_image() {
 
 generate_dockerfile() {
     local template_file="$1"
-    local replace_string="$2"
-    local target_file="${template_file%.template}"
+    local target_file="$2"
+    local template_string="$3"
+    local replace_string="$4"
     
     # 检查文件是否存在
     if [[ ! -f "$template_file" ]]; then
@@ -56,7 +57,7 @@ generate_dockerfile() {
     local escaped_string=$(printf '%s\n' "$replace_string" | sed 's/[\/&]/\\&/g')
     
     # 执行替换
-    if sed "s/BASE_IMAGE_PLACEHOLDER_STRING/$escaped_string/g" "$template_file" > "$target_file"; then
+    if sed "s/$template_string/$escaped_string/g" "$template_file" > "$target_file"; then
         echo "成功: 已生成 $target_file"
         return 0
     else
@@ -67,14 +68,15 @@ generate_dockerfile() {
 
 # 函数：构建镜像
 build_image() {
-    local image="$1"
+    local dockerfile="$1"
+    local image_name="$2"
     
     # 检查并删除已存在的镜像
-    if docker inspect --type=image "$image" >/dev/null 2>&1; then
+    if docker inspect --type=image "$image_name" >/dev/null 2>&1; then
         echo "发现已存在的目标镜像，正在删除..."
-        if ! docker rmi -f "$image" 2>/dev/null; then
+        if ! docker rmi -f "$image_name" 2>/dev/null; then
             echo "警告: 无法删除现有镜像，可能正在被使用"
-            used_by=$(docker ps -a --filter "ancestor=$image" --format '{{.ID}}')
+            used_by=$(docker ps -a --filter "ancestor=$image_name" --format '{{.ID}}')
             if [ -n "$used_by" ]; then
                 echo "镜像被以下容器使用: $used_by"
             fi
@@ -85,9 +87,9 @@ build_image() {
     fi
 
     # 构建镜像
-    echo "构建镜像: $image ..."
-    if docker build -t "$image" -f work.Dockerfile .; then
-        echo "镜像构建成功: $image"
+    echo "构建镜像: $image_name ..."
+    if docker build -t "$image_name" -f "$dockerfile" .; then
+        echo "镜像构建成功: $image_name"
         return 0
     fi
 
@@ -99,7 +101,9 @@ build_warper() {
     BASE_IMAGE="$1"
     ALEX_IMAGE="$2"
 
-    generate_dockerfile "work.Dockerfile.template" "${BASE_IMAGE}"
+    local template_file="work.Dockerfile.template"
+    local target_file="${template_file%.template}"
+    generate_dockerfile "$template_file" "$target_file" "BASE_IMAGE_PLACEHOLDER_STRING" "${BASE_IMAGE}"
     # 主流程
     echo "目标基础镜像: $BASE_IMAGE"
     echo "目标构建镜像: $ALEX_IMAGE"
@@ -110,7 +114,7 @@ build_warper() {
     fi  
 
     # 构建目标镜像
-    if ! build_image "$ALEX_IMAGE"; then
+    if ! build_image "$target_file" "$ALEX_IMAGE"; then
         return 1
     fi
 
