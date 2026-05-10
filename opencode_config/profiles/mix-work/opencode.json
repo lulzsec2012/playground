@@ -3,13 +3,13 @@
   "provider": {
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Ollama 本地",
+      "name": "Ollama \u672c\u5730",
       "options": {
         "baseURL": "http://127.0.0.1:11434/v1"
       },
       "models": {
         "qwen3-coder-next:latest": {
-          "name": "Qwen3 Coder Next 主力模型",
+          "name": "Qwen3 Coder Next \u4e3b\u529b\u6a21\u578b",
           "tools": true,
           "limit": {
             "context": 262144,
@@ -17,7 +17,7 @@
           }
         },
         "qwen3.6:27b": {
-          "name": "Qwen3.6 27B 高阶推理",
+          "name": "Qwen3.6 27B \u9ad8\u9636\u63a8\u7406",
           "tools": true,
           "limit": {
             "context": 262144,
@@ -25,7 +25,7 @@
           }
         },
         "qwen2.5-coder:14b": {
-          "name": "Qwen2.5 Coder 14B 轻量",
+          "name": "Qwen2.5 Coder 14B \u8f7b\u91cf",
           "tools": true,
           "limit": {
             "context": 32768,
@@ -36,14 +36,14 @@
     },
     "deepseek": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "DeepSeek 云端核心 [mix-work]",
+      "name": "DeepSeek \u4e91\u7aef\u6838\u5fc3 [mix-work]",
       "options": {
         "baseURL": "https://api.deepseek.com/v1",
         "apiKey": "{env:DEEPSEEK_API_KEY}"
       },
       "models": {
         "deepseek-v4-flash": {
-          "name": "DeepSeek V4 Flash（云端核心）",
+          "name": "DeepSeek V4 Flash\uff08\u4e91\u7aef\u6838\u5fc3\uff09",
           "tools": true,
           "limit": {
             "context": 262144,
@@ -59,6 +59,7 @@
     "oh-my-openagent@latest",
     "opencode-agent-context",
     "opencode-skill-creator",
-    "@tarquinen/opencode-dcp@latest"
+    "@tarquinen/opencode-dcp@latest",
+    "opencode-yaml-hooks"
   ]
 }
