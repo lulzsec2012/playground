@@ -1,0 +1,23 @@
+{
+  "skill_name": "submodule-recursive-commit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我改了几个 submodule 的代码，现在需要提交所有变更。请帮我递归提交所有有变更的子模块，从底层的开始。",
+      "expected_output": "扫描所有 submodule 检测变更，按深度排序，依次提交每个有变更的 submodule，最后在父仓库提交指针更新",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Run a recursive commit on all submodules. I've been working on the frontend-lib and backend-api submodules today. First check if there are any merge conflicts before committing.",
+      "expected_output": "先检测冲突，然后只对实际有变更的 submodule 提交，生成基于变更内容的提交信息",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "help me commit the submodule changes dry run please, i want to see what would happen",
+      "expected_output": "展示所有有变更的 submodule 列表和将要提交的摘要，不执行任何实际提交",
+      "files": []
+    }
+  ]
+}

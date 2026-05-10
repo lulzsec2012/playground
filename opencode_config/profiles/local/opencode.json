@@ -1,0 +1,64 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama 本地 [local]",
+      "options": {
+        "baseURL": "http://127.0.0.1:11434/v1"
+      },
+      "models": {
+        "qwen3-coder-next:latest": {
+          "name": "Qwen3 Coder Next 主力模型",
+          "tools": true,
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          }
+        },
+        "qwen3.6:27b": {
+          "name": "Qwen3.6 27B 高阶推理",
+          "tools": true,
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          }
+        },
+        "qwen2.5-coder:14b": {
+          "name": "Qwen2.5 Coder 14B 轻量",
+          "tools": true,
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        }
+      }
+    },
+    "deepseek": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek 云端兜底",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_API_KEY}"
+      },
+      "models": {
+        "deepseek-v4-flash": {
+          "name": "DeepSeek V4 Flash（云端兜底）",
+          "tools": true,
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          }
+        }
+      }
+    }
+  },
+  "model": "ollama/qwen3-coder-next:latest",
+  "small_model": "ollama/qwen2.5-coder:14b",
+  "plugin": [
+    "oh-my-openagent@latest",
+    "opencode-agent-context",
+    "opencode-skill-creator",
+    "@tarquinen/opencode-dcp@latest"
+  ]
+}

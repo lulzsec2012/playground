@@ -1,0 +1,183 @@
+{
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/refs/heads/dev/assets/oh-my-opencode.schema.json",
+  "default_agent": "sisyphus",
+  "hashline_edit": true,
+  "background_task": {
+    "defaultConcurrency": 3
+  },
+  "agents": {
+    "sisyphus": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "主协调者（云端调度核心）",
+      "maxTokens": 32768,
+      "prompt_append": "You are an AI assistant. You must always respond in Simplified Chinese (中文). 你必须始终用中文回复用户。请用中文进行推理，思考过程必须使用中文。Please reason step by step in Chinese language. 中文推理，中文输出。",
+      "fallback_models": [
+        "ollama/qwen3-coder-next:latest",
+        "ollama/qwen3.6:27b"
+      ]
+    },
+    "prometheus": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "规划（云端高阶推理）",
+      "maxTokens": 16384,
+      "reasoningEffort": "high",
+      "prompt_append": "You are an AI assistant. You must always respond in Simplified Chinese (中文). 你必须始终用中文回复用户。请用中文进行推理，思考过程必须使用中文。Please reason step by step in Chinese language. 中文推理，中文输出。",
+      "fallback_models": [
+        "ollama/qwen3.6:27b",
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "hephaestus": {
+      "model": "ollama/qwen3-coder-next:latest",
+      "description": "代码执行核心（本地高效）",
+      "maxTokens": 32768,
+      "temperature": 0.2,
+      "prompt_append": "You are an AI assistant. You must always respond in Simplified Chinese (中文). 你必须始终用中文回复用户。即使思考过程可以用英文，最终回复必须是中文。",
+      "fallback_models": [
+        "ollama/qwen3.6:27b",
+        "deepseek/deepseek-v4-flash"
+      ]
+    },
+    "oracle": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "只读推理专家（云端高阶兜底）",
+      "maxTokens": 32768,
+      "reasoningEffort": "high",
+      "prompt_append": "You are an AI assistant. You must always respond in Simplified Chinese (中文). 你必须始终用中文回复用户。请用中文进行推理，思考过程必须使用中文。Please reason step by step in Chinese language. 中文推理，中文输出。",
+      "fallback_models": [
+        "ollama/qwen3.6:27b",
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "momus": {
+      "model": "ollama/qwen3.6:27b",
+      "description": "质量裁判（本地高阶审查）",
+      "maxTokens": 16384,
+      "temperature": 0.1,
+      "prompt_append": "You are an AI assistant. You must always respond in Simplified Chinese (中文). 你必须始终用中文回复用户。即使思考过程可以用英文，最终回复必须是中文。",
+      "fallback_models": [
+        "ollama/qwen3-coder-next:latest",
+        "deepseek/deepseek-v4-flash"
+      ]
+    },
+    "metis": {
+      "model": "ollama/qwen2.5-coder:14b",
+      "description": "风险评估（轻量本地）",
+      "maxTokens": 4096,
+      "prompt_append": "You are an AI assistant. You must always respond in Simplified Chinese (中文). 你必须始终用中文回复用户。即使思考过程可以用英文，最终回复必须是中文。",
+      "fallback_models": [
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "atlas": {
+      "model": "ollama/qwen2.5-coder:14b",
+      "description": "任务拆解（轻量本地）",
+      "maxTokens": 4096,
+      "prompt_append": "You are an AI assistant. You must always respond in Simplified Chinese (中文). 你必须始终用中文回复用户。即使思考过程可以用英文，最终回复必须是中文。",
+      "fallback_models": [
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "explore": {
+      "model": "ollama/qwen3-coder-next:latest",
+      "description": "代码理解（本地）",
+      "maxTokens": 16384,
+      "fallback_models": [
+        "ollama/qwen3.6:27b"
+      ]
+    },
+    "librarian": {
+      "model": "ollama/qwen3.6:27b",
+      "description": "文档处理（本地高质量）",
+      "maxTokens": 16384,
+      "fallback_models": [
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "multimodal-looker": {
+      "model": "ollama/qwen3-coder-next:latest",
+      "description": "视觉任务",
+      "maxTokens": 8192,
+      "fallback_models": [
+        "ollama/qwen3.6:27b"
+      ]
+    }
+  },
+  "categories": {
+    "visual-engineering": {
+      "model": "ollama/qwen3-coder-next:latest",
+      "description": "前端/UI/UX/设计",
+      "maxTokens": 8192,
+      "fallback_models": [
+        "ollama/qwen3.6:27b"
+      ]
+    },
+    "artistry": {
+      "model": "ollama/qwen3.6:27b",
+      "description": "创意写作",
+      "maxTokens": 8192,
+      "fallback_models": [
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "ultrabrain": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "超难任务（云端高阶推理兜底）",
+      "maxTokens": 32768,
+      "reasoningEffort": "high",
+      "fallback_models": [
+        "ollama/qwen3.6:27b",
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "deep": {
+      "model": "ollama/qwen3.6:27b",
+      "description": "深度研究与自主问题解决",
+      "maxTokens": 16384,
+      "fallback_models": [
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "coder": {
+      "model": "ollama/qwen3-coder-next:latest",
+      "description": "代码执行",
+      "maxTokens": 16384,
+      "fallback_models": [
+        "ollama/qwen3.6:27b"
+      ]
+    },
+    "quick": {
+      "model": "ollama/qwen2.5-coder:14b",
+      "description": "快速轻量任务",
+      "maxTokens": 4096,
+      "fallback_models": [
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "writing": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "文档写作（云端更优）",
+      "maxTokens": 8192,
+      "fallback_models": [
+        "ollama/qwen3.6:27b"
+      ]
+    },
+    "unspecified-low": {
+      "model": "ollama/qwen2.5-coder:14b",
+      "description": "低优先级通用任务",
+      "maxTokens": 4096,
+      "fallback_models": [
+        "ollama/qwen3-coder-next:latest"
+      ]
+    },
+    "unspecified-high": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "高优先级通用任务（云端）",
+      "maxTokens": 16384,
+      "fallback_models": [
+        "ollama/qwen3.6:27b",
+        "ollama/qwen3-coder-next:latest"
+      ]
+    }
+  }
+}

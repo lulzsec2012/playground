@@ -1,0 +1,37 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "provider": {
+
+    "deepseek": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek（云端兜底 - 极少调用） [work]",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_API_KEY}"
+      },
+
+      "models": {
+
+        "deepseek-v4-flash": {
+          "name": "DeepSeek V4 Flash（云端核心）",
+          "tools": true,
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          }
+        }
+      }
+    }
+  },
+
+  "model": "deepseek/deepseek-v4-flash",
+  "small_model": "deepseek/deepseek-v4-flash",
+
+  "plugin": [
+    "oh-my-openagent@latest",
+    "opencode-agent-context",
+    "opencode-skill-creator",
+    "@tarquinen/opencode-dcp@latest"
+  ]
+}
