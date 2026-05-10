@@ -79,9 +79,14 @@ generate() {
         generate_authorized_keys "$DATA_DIR/ssh_keys.cfg" "$target_dir/.ssh/authorized_keys"
     fi
 
-    if [[ -f "$DATA_DIR/vpn.cfg" && (! -f "$target_dir/.ssh/vpn.cfg" || "$force" == true) ]]; then
-        cp "$DATA_DIR/vpn.cfg" "$target_dir/.ssh/vpn.cfg"
-        echo "  .ssh/vpn.cfg"
+    if [[ ! -f "$target_dir/.ssh/vpn.cfg" || "$force" == true ]]; then
+        if [[ -f "$DATA_DIR/vpn.cfg" ]]; then
+            cp "$DATA_DIR/vpn.cfg" "$target_dir/.ssh/vpn.cfg"
+            echo "  .ssh/vpn.cfg (from data/)"
+        else
+            touch "$target_dir/.ssh/vpn.cfg"
+            echo "  .ssh/vpn.cfg (empty placeholder)"
+        fi
     fi
 
     if [[ -f "$DATA_DIR/.authinfo" && (! -f "$target_dir/.authinfo" || "$force" == true) ]]; then

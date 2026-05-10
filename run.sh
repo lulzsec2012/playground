@@ -9,9 +9,9 @@ fi
 : "${HOST_PORT:=}"
 
 declare -A INSTANCES=(
-    [default]="2222:lulzsec2012/work-cuda-dev:cuda12.4-ubuntu22.04"
-    [test-v1]="2223:lulzsec2012/work-cuda-dev:cuda12.4-ubuntu22.04"
-    [test-v2]="2224:lulzsec2012/work-cuda-dev:cuda12.4-ubuntu22.04"
+    [default]="2222:docker.1ms.run/lulzsec2012/work-cuda-dev:cuda13.2-ubuntu24.04"
+    [test-v1]="2223:docker.1ms.run/lulzsec2012/work-cuda-dev:cuda13.2-ubuntu24.04"
+    [test-v2]="2224:docker.1ms.run/lulzsec2012/work-cuda-dev:cuda13.2-ubuntu24.04"
 )
 
 INSTANCES_DIR="$HOME/.docker/instances"
@@ -103,6 +103,11 @@ work-server() {
         id -u $(id -u) >/dev/null 2>&1 || useradd -m -u $(id -u) -g $(id -g) -G sudo -s /bin/bash $USER
         passwd -d $USER >/dev/null 2>&1
         echo '$USER ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$USER
+        SOCKET_GID=\$(stat -c '%g' /var/run/docker.sock 2>/dev/null)
+        if [ -n \"\$SOCKET_GID\" ] && [ \"\$SOCKET_GID\" != \"0\" ]; then
+            getent group \$SOCKET_GID >/dev/null 2>&1 || groupadd -g \$SOCKET_GID docker
+            usermod -aG \$SOCKET_GID $USER
+        fi
     " 2>&1
     docker exec "$name" service ssh restart >/dev/null 2>&1
 
