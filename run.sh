@@ -1,160 +1,138 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -e
 
-# 使用绝对路径source
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$SCRIPT_DIR"
-source "$PROJECT_ROOT/scripts/docker_image.sh"
 
-build_cpu_image() {
-    BASE_CPU_IMAGE="mattlu/work-dev:latest"
-    ALEX_CPU_IMAGE="${BASE_CPU_IMAGE//mattlu/lizhi.lu}"
-    (
-        cd "$(dirname "${BASH_SOURCE[0]}")" && build_warper "$BASE_CPU_IMAGE" "$ALEX_CPU_IMAGE"
-    )
+if [ -z "$HOST_IP" ]; then
+    HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+fi
+: "${HOST_PORT:=}"
+
+declare -A INSTANCES=(
+    [default]="2222:lulzsec2012/work-cuda-dev:cuda12.4-ubuntu22.04"
+    [test-v1]="2223:lulzsec2012/work-cuda-dev:cuda12.4-ubuntu22.04"
+    [test-v2]="2224:lulzsec2012/work-cuda-dev:cuda12.4-ubuntu22.04"
+)
+
+INSTANCES_DIR="$HOME/.docker/instances"
+CLASH_CONFIG="$HOME/.docker/clash_config"
+
+usage() {
+    echo "Usage: source run.sh && <command> [instance] [-f]"
+    echo ""
+    echo "Commands:"
+    echo "  work-server [instance] [-f]    Start container for instance"
+    echo "  work-server-exec [instance]    Enter running container"
+    echo "  work-server-ls                 List all instances"
+    echo "  work-server-rm [instance]      Remove container"
+    echo "  work-server-stop [instance]    Stop container"
+    echo ""
+    echo "Instances:"
+    for inst in "${!INSTANCES[@]}"; do
+        local IFS=":"
+        read -r port image <<< "${INSTANCES[$inst]}"
+        printf "  %-12s port=%-4s %s\n" "$inst" "$port" "$image"
+    done
 }
 
-build_gpu_image(){
-    BASE_GPU_IMAGE="mattlu/work-cuda-dev:cuda13.0-ubuntu22.04"
-    ALEX_GPU_IMAGE="${BASE_GPU_IMAGE//mattlu/lizhi.lu}" 
-    (
-        cd "$(dirname "${BASH_SOURCE[0]}")" && build_warper "$BASE_GPU_IMAGE" "$ALEX_GPU_IMAGE"
-    )
-}
+work-server() {
+    local instance="${1:-default}"
+    local force=false
+    [[ "$2" == "-f" ]] && force=true
 
-build_gpu_image_12.4(){
-    ALEX_GPU_IMAGE="lizhi.lu/work-cuda-dev:cuda12.4.1-ubuntu22.04"
-
-    git clone https://github.com/luluman/docker.git luluman_docker
-    (
-        cd "$(dirname "${BASH_SOURCE[0]}")/luluman_docker/" && (
-            local template_file="work-cuda.Dockerfile"
-            local target_file="${template_file}.temp"
-            local template_string="cuda:13.0.0-devel-ubuntu"
-            local replace_string="cuda:12.4.1-devel-ubuntu"
-            
-            generate_dockerfile "$template_file" "$target_file" "$template_string" "$replace_string" && \
-            build_image "$target_file" "$ALEX_GPU_IMAGE"
-        )
-    )
-    # rm -rf luluman_docker
-}
-
-
-function work-linux-server() {
-    if [[ $# -gt 0 && "$1" == "-f" ]]; then
-        docker container rm -f "${USER}-work-server"
-    fi
-    local base="$HOME/.docker"
-    local home; home="${base}/home-work"
-    local workspace; workspace="${HOME}/workspace"
-    local share; share="${HOME}/share"
-    local opt; opt="${base}/opt"
-    local etc; etc="${base}/etc"
-    local data; data=$(realpath /develop01)
-
-    mkdir -p "$etc"
-    getent passwd > "$etc/passwd"
-    getent group > "$etc/group"
-    getent shadow > "$etc/shadow"
-
-    docker run -it \
-           --privileged \
-           --log-driver=none \
-           --group-add=$(getent group docker | cut -d: -f3) \
-           --hostname="D$(hostname)" \
-           --name "${USER}-work-server" \
-           --detach-keys "ctrl-^,ctrl-@" \
-           --volume="${home}:${HOME}":delegated \
-           --volume="${workspace}:/workspace":cached \
-           --volume="${opt}:/opt":cached \
-           --volume="${data}:${data}":cached \
-           --volume="${share}:/share:ro" \
-           --volume="$etc/group:/etc/group:ro" \
-           --volume="$etc/passwd:/etc/passwd:ro" \
-           --volume="$etc/shadow:/etc/shadow:ro" \
-           --volume="$(realpath "$base/clash_config"):/clash_config:cached" \
-           --volume=/var/run/docker.sock:/var/run/docker.sock \
-           --env-file "${home}/.ssh/vpn.cfg" \
-           --detach \
-           -p 2222:22 \
-           --restart unless-stopped \
-           lizhi.lu/work-dev:latest
-
-    # if [ -f custom_commands_drv.sh ]; then
-    #     echo "executing custom commands"
-    #     bash custom_commands_drv.sh
-    # fi
-}
-
-function work-linux-server-exec() {
-    #docker cp ~/.ssh "${USER}-work-server":/home/$(whoami)/ && \
-    docker exec -ti --user ${UID} \
-           --detach-keys "ctrl-^,ctrl-@" \
-           "${USER}-work-server" /bin/bash
-}
-
-function add-network() {
-    docker network create --driver bridge lizhi.lu-net
-}
-
-
-function work-linux-cuda-server() {
-    # Assumes a ".docker" (this project) and a "workspace" folder exist in $HOME.
-    # cd ~/
-    # ln -s your/original/.docker/path .docker
-    # ln -s your/original/workspace/path workspace
-
-    if [[ $# -gt 0 && "$1" == "-f" ]]; then
-        docker container rm -f "${USER}-work-cuda-server"
+    local IFS=":"
+    read -r port image <<< "${INSTANCES[$instance]}"
+    if [[ -z "$port" ]]; then
+        echo "❌ Unknown instance: $instance"
+        echo "Available: ${!INSTANCES[*]}"
+        return 1
     fi
 
-    local base="$HOME/.docker"
+    local name="${USER}-work-server-${instance}"
+    local config_dir="/tmp/.docker-instances/${instance}"
+
+    if [[ ! -f "$config_dir/.bashrc" || "$force" == true ]]; then
+        echo "📝 Generating config for '$instance'..."
+        bash "$SCRIPT_DIR/auto_script.sh" $([[ "$force" == true ]] && echo "-f") "$config_dir"
+    fi
+
+    if docker inspect "$name" >/dev/null 2>&1; then
+        $force && docker container rm -f "$name" >/dev/null 2>&1
+    fi
+
     declare -a volumes=(
-        --volume="$(realpath "$HOME/workspace"):/workspace:cached"
-        --volume="$(realpath "$base/home-work"):/home/$(whoami):delegated"
-        --volume="$(realpath "$base/tmp"):/tmp:cached"
-        --volume="$(realpath "$base/clash_config"):/clash_config:cached"
+        --volume="$HOME/workspace:/workspace:cached"
         --volume="/var/run/docker.sock:/var/run/docker.sock"
     )
 
-    # List your shared dirs here (expand as needed)
+    if [[ -d "$CLASH_CONFIG" ]]; then
+        volumes+=(--volume="$CLASH_CONFIG:/clash_config:cached")
+    fi
+
     declare -a shared_dirs=(
-        "/mnt"
-        "/share"
+        "/share_data" "/software_data" "/data"
+        "/zjshare_data" "/softhome" "/share" "/data_gpu"
     )
     for dir in "${shared_dirs[@]}"; do
-        if [ -d "$dir" ]; then
-            volumes+=(--volume="$(realpath "$dir"):$dir")
+        if [[ -d "$dir" ]]; then
+            volumes+=(--volume="$dir:$dir")
         fi
     done
 
-    mkdir -p "$base/etc"
-    # Use awk to find the current user's line and replace the home directory (field 6).
-    getent passwd | awk -F: '$3 < 1000 {print}' >"$base/etc/passwd" # system accounts
-    getent passwd "$(whoami)" | awk -F: 'BEGIN{OFS=FS}{$6="/home/"$1}1' >>"$base/etc/passwd"
-    getent group >"$base/etc/group"
-    getent group "$(id -g -n)" >>"$base/etc/group"
-
-    volumes+=(--volume="$base/etc/passwd:/etc/passwd:ro" --volume="$base/etc/group:/etc/group:ro")
-
-    docker run -t \
-        --privileged \
-        --gpus all \
+    docker run -t --privileged --gpus all \
         --log-driver=none \
         --hostname="D$(hostname)" \
-        --group-add=$(getent group docker | cut -d: -f3) \
-        --name "${USER}-work-cuda-server" \
-        --detach-keys "ctrl-^,ctrl-@" \
+        --name "$name" \
         "${volumes[@]}" \
-        --env-file "$base/home-work/.ssh/vpn.cfg" \
-        --restart=always --detach \
-        lizhi.lu/work-cuda-dev:cuda13.0-ubuntu22.04
+        -p "$port:22" \
+        -e "HOST_IP=$HOST_IP" \
+        -e "HOST_PORT=$port" \
+        --env-file "$config_dir/.ssh/vpn.cfg" \
+        --restart=unless-stopped --detach \
+        "$image"
 
+    echo "🔧 Setting up home directory and user..."
+    sleep 2
+    docker cp "$config_dir/." "$name:$HOME/"
+    docker exec "$name" chmod 700 $HOME/.ssh
+    docker exec "$name" chmod 600 $HOME/.ssh/authorized_keys
+    docker exec "$name" chown -R "$(id -u):$(id -g)" $HOME/
+
+    docker exec "$name" bash -c "
+        getent group $(id -g) >/dev/null 2>&1 || groupadd -g $(id -g) $USER
+        id -u $(id -u) >/dev/null 2>&1 || useradd -m -u $(id -u) -g $(id -g) -G sudo -s /bin/bash $USER
+        passwd -d $USER >/dev/null 2>&1
+        echo '$USER ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$USER
+    " 2>&1
+    docker exec "$name" service ssh restart >/dev/null 2>&1
+
+    local bridge_ip=$(docker inspect "$name" --format "{{.NetworkSettings.IPAddress}}")
+    echo "✅ $name started (bridge=$bridge_ip, host=127.0.0.1:$port)"
 }
 
-function work-linux-cuda-server-exec() {
-    #docker cp ~/.ssh "${USER}-work-server":/home/$(whoami)/ && \
-    docker exec -ti --user ${UID} \
-           --detach-keys "ctrl-^,ctrl-@" \
-           "${USER}-work-cuda-server" /bin/bash
+work-server-exec() {
+    local instance="${1:-default}"
+    docker exec -ti --user "$UID" --detach-keys "ctrl-^,ctrl-@" "${USER}-work-server-${instance}" /bin/bash
+}
+
+work-server-ls() {
+    printf "%-12s %-5s %-40s %s\n" "INSTANCE" "PORT" "CONTAINER" "STATUS"
+    printf "%-12s %-5s %-40s %s\n" "--------" "----" "---------" "------"
+    for inst in "${!INSTANCES[@]}"; do
+        local name="${USER}-work-server-${inst}"
+        local port="${INSTANCES[$inst]%%:*}"
+        local status=$(docker inspect --format '{{.State.Status}}' "$name" 2>/dev/null || echo "stopped")
+        printf "%-12s %-5s %-40s %s\n" "$inst" "$port" "$name" "$status"
+    done
+}
+
+work-server-rm() {
+    local instance="${1:-default}"
+    echo "❌ Removing ${USER}-work-server-${instance}..."
+    docker container rm -f "${USER}-work-server-${instance}" 2>/dev/null || true
+}
+
+work-server-stop() {
+    local instance="${1:-default}"
+    docker container stop "${USER}-work-server-${instance}" 2>/dev/null || true
 }

@@ -1,95 +1,113 @@
-#!/bin/bash
-source ./scripts/utils.sh
+#!/usr/bin/env bash
+set -e
 
-# set -x  # 跟踪执行命令
-set -e  # 如果任何命令失败，则终止脚本
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE="$SCRIPT_DIR/home-config"
+DATA_DIR="$SCRIPT_DIR/data"
 
-# 1.生成 SSH 密钥对
-setup_ssh_keys
+usage() {
+    echo "Usage: $0 <output_dir> [-f]"
+    echo ""
+    echo "Generate container home directory configuration."
+    echo ""
+    echo "  output_dir    Target directory (will be created if not exist)"
+    echo "  -f            Force overwrite existing files"
+    exit 1
+}
 
-# 2.克隆 luluman docker 仓库
-if [ ! -d ./docker ] ; then
-    clone_with_retry git@github.com:luluman/docker.git
-    check_success "Failed to clone the repository 'docker'"
-else
-    echo "Directory ~/.docker already exists."
-fi
+generate_authorized_keys() {
+    local src="$1"
+    local dst="$2"
+    if [[ -f "$src" ]]; then
+        > "$dst"
+        while IFS= read -r line; do
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            echo "$line" >> "$dst"
+        done < "$src"
+        echo "  authorized_keys: $(wc -l < "$dst") keys"
+    fi
+}
 
-# 3.检查并进入 docker/home-work 目录
-if [ -d ./docker/home-work ]; then
-    pushd ./docker/home-work
+generate_bashrc() {
+    local target="$1"
+    local fragment_dir="$TEMPLATE/bashrc"
 
-    # 克隆 emacs.d 仓库
-    if [ ! -d .emacs.d ]; then
-        clone_with_retry git@github.com:lulzsec2012/emacs.d.git .emacs.d
-        check_success "Failed to clone the repository 'emacs.d'"
-    else
-        echo "Directory .emacs.d already exists."
+    : > "$target"
+    for f in "$fragment_dir"/*.sh; do
+        echo "# --- $(basename "$f") ---" >> "$target"
+        cat "$f" >> "$target"
+        echo "" >> "$target"
+    done
+    echo "  .bashrc: $(wc -l < "$target") lines from $(ls "$fragment_dir"/*.sh | wc -l) fragments"
+}
+
+generate() {
+    local target_dir="$1"
+    local force="${2:-false}"
+
+    mkdir -p "$target_dir/.ssh" "$target_dir/.pip"
+
+    if [[ ! -f "$target_dir/.bashrc" || "$force" == true ]]; then
+        generate_bashrc "$target_dir/.bashrc"
     fi
 
-    # 检查 .bashrc 是否存在并编辑
-    if [ -f .bashrc ]; then
-        sed -i '$ a alias emacs-D="emacs --daemon=lizhi.lu"' .bashrc
-        sed -i '$ a alias emacs-C="emacsclient -s lizhi.lu -c"' .bashrc
-        sed -i '$ a alias sshhome="ssh lzlu@4544a6914s.wicp.vip -p 21509"' .bashrc
-        sed -i "\$ a export PATH=\"\$HOME/.local/bin:\$PATH\"" .bashrc
-        sed -i '$ a rm .emacs.d/elpa/symon-20170224.833/symon.elc -f' .bashrc
-        sed -i '$ a #-i https://pypi.tuna.tsinghua.edu.cn/simple' .bashrc
-    else
-        echo "File ~/docker/home-work/.bashrc does not exist."
+    for src in profile gitconfig; do
+        local dst="$target_dir/.$src"
+        if [[ ! -f "$dst" || "$force" == true ]]; then
+            cp "$TEMPLATE/$src" "$dst"
+            echo "  .$src"
+        fi
+    done
+
+    for src in pip.conf; do
+        local dst="$target_dir/.pip/$src"
+        if [[ ! -f "$dst" || "$force" == true ]]; then
+            cp "$TEMPLATE/pip/$src" "$dst"
+            echo "  .pip/$src"
+        fi
+    done
+
+    for src in config; do
+        local dst="$target_dir/.ssh/$src"
+        if [[ ! -f "$dst" || "$force" == true ]]; then
+            cp "$TEMPLATE/ssh/$src" "$dst"
+            echo "  .ssh/$src"
+        fi
+    done
+
+    if [[ ! -f "$target_dir/.ssh/authorized_keys" || "$force" == true ]]; then
+        generate_authorized_keys "$DATA_DIR/ssh_keys.cfg" "$target_dir/.ssh/authorized_keys"
     fi
 
-    # 配置git用户信息，alias
-    config_git
-
-    # 配置pip国内源
-    config_pip
-
-    # 新增.profile文件
-    add_profile
-
-    # 复制主机.ssh目录
-    cp ~/.ssh/* .ssh/
-
-    popd
-
-    # 拷贝授权Keys
-    if [ -d ./data ]; then
-        if [ -f data/.authinfo ]; then
-            cp data/.authinfo docker/home-work/ -f
-        fi
-        if [ -f data/vpn.cfg ]; then
-            cp data/vpn.cfg  docker/home-work/.ssh/ -f
-        fi
-        if [ -f data/ssh_keys.cfg ]; then
-            cp data/vpn.cfg  docker/home-work/.ssh/ -f
-            add_ssh_keys_from_config "data/ssh_keys.cfg" "docker/home-work/.ssh/authorized_keys"
-        fi
-        if [ -f data/clash_config.yaml ]; then
-            mkdir -p docker/opt
-            cp data/clash_config.yaml docker/opt/ -f
-        fi
-
+    if [[ -f "$DATA_DIR/vpn.cfg" && (! -f "$target_dir/.ssh/vpn.cfg" || "$force" == true) ]]; then
+        cp "$DATA_DIR/vpn.cfg" "$target_dir/.ssh/vpn.cfg"
+        echo "  .ssh/vpn.cfg"
     fi
 
-    # 重命名docker目录
-    rm ~/.docker -rf && mv ./docker ~/.docker
-else
-    echo "Directory ~/docker/home-work does not exist."
+    if [[ -f "$DATA_DIR/.authinfo" && (! -f "$target_dir/.authinfo" || "$force" == true) ]]; then
+        cp "$DATA_DIR/.authinfo" "$target_dir/.authinfo"
+        echo "  .authinfo"
+    fi
+
+    echo "✅ Config generated: $target_dir"
+}
+
+if [[ $# -lt 1 ]]; then
+    usage
 fi
 
-# 4.修改并重新加载 .bashrc
-if [ ! -f ~/.bashrc ]; then
-    echo "File ~/.bashrc does not exist. Creating a new one."
-    cp ~/.docker/home-work/.bashrc ~/.bashrc
+force=false
+target_dir=""
+for arg in "$@"; do
+    case "$arg" in
+        -f) force=true ;;
+        -*|--*) echo "Unknown option: $arg"; usage ;;
+        *) target_dir="$arg" ;;
+    esac
+done
+
+if [[ -z "$target_dir" ]]; then
+    usage
 fi
 
-LINE="source ${PWD}/run.sh"
-if ! grep -Fxq "$LINE" ~/.bashrc; then
-    echo "$LINE" >> ~/.bashrc
-fi
-
-echo "Script executed successfully."
-
-# 在当前环境中执行
-# exec bash --rcfile <(cat ~/.bashrc; echo "source ~/.docker/run.sh")
+generate "$target_dir" "$force"
