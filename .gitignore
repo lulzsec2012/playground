@@ -6,7 +6,7 @@ home-config/ssh/vpn.cfg
 home-config/ssh/authorized_keys
 
 # Docker submodule — managed separately
-docker/
+/docker/
 
 # Cloned repos (legacy)
 luluman_docker/
