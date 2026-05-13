@@ -54,8 +54,8 @@ if docker image inspect lulzsec2012/emacs:latest >/dev/null 2>&1; then
             --user "$(id -u):$(id -g)" \
             --name emacs-daemon \
             lulzsec2012/emacs:latest \
-            sh -c "emacs --daemon=lulizhi && sleep infinity" \
-            >/dev/null 2>&1
+            sh -c "emacs --daemon=lulizhi && sleep infinity" 2>&1 || \
+            echo "emacs-D failed. Check: docker rm -f emacs-daemon"
     }
     alias emacs-D='_emacs_docker_run'
     alias emacs-C='docker exec -it emacs-daemon emacsclient -s lulizhi -nw'
