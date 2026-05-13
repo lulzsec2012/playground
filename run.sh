@@ -9,9 +9,9 @@ fi
 : "${HOST_PORT:=}"
 
 declare -A INSTANCES=(
-    [default]="2222:lulzsec2012/work-cuda-dev:cuda12.4-ubuntu22.04"
-    [test-v1]="2223:lulzsec2012/work-cuda-dev:cuda12.4-ubuntu22.04"
-    [test-v2]="2224:lulzsec2012/work-cuda-dev:cuda12.4-ubuntu22.04"
+    [default]="2222:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
+    [test-v1]="2223:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
+    [test-v2]="2224:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
 )
 
 INSTANCES_DIR="$HOME/.docker/instances"
