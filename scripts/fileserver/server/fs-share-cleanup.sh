@@ -13,9 +13,8 @@ now=$(date +%s)
 cleaned=0
 
 if [ ! -d "$META_DIR" ]; then
-    echo "[cleanup] 无 TTL 元数据目录，跳过"
-    exit 0
-fi
+    echo "[cleanup] 无 TTL 元数据目录，跳过分享清理"
+else
 
 for meta_file in "$META_DIR"/*.conf; do
     [ -f "$meta_file" ] || continue
@@ -40,6 +39,7 @@ if [ "$cleaned" -gt 0 ]; then
     fi
     echo "[cleanup] 已清理 ${cleaned} 个过期分享"
 fi
+fi  # end share cleanup block
 
 # === 恢复过期临时密码 ===
 MARKER_DIR="/data/etc/temp-users"
@@ -48,18 +48,52 @@ if [ -d "$MARKER_DIR" ]; then
         [ ! -f "$marker" ] && continue
         source "$marker"
         if [ -n "${expires_at:-}" ] && [ "$(date +%s)" -ge "$expires_at" ]; then
-            restore_pw="${restore_password:-}"
-            if [ -n "$restore_pw" ]; then
-                if systemctl is-active filebrowser &>/dev/null; then
-                    systemctl stop filebrowser 2>/dev/null
-                    sleep 1
-                fi
-                /usr/local/bin/filebrowser users update admin \
-                    --database=/data/filebrowser.db \
-                    --password="$restore_pw" 2>/dev/null || true
-                systemctl start filebrowser 2>/dev/null || true
-                echo "[cleanup] admin 密码已恢复为随机长密码"
-            fi
+            case "${service:-fs}" in
+                mixapi)
+                    orig_pw="${original_password:-}"
+                    temp_pw="${temp_password:-}"
+                    if [ -n "$orig_pw" ] && [ -n "$temp_pw" ]; then
+                        COOKIE_JAR=$(mktemp)
+                        # 用 temp_password 登录（当前有效密码）
+                        LOGIN=$(curl -s -X POST "http://localhost:3000/api/user/login" \
+                            -H "Content-Type: application/json" -c "$COOKIE_JAR" \
+                            -d "{\"username\":\"root\",\"password\":\"${temp_pw}\"}" 2>/dev/null)
+                        if echo "$LOGIN" | python3 -c "import sys,json;exit(0 if json.load(sys.stdin).get('success') else 1)" 2>/dev/null; then
+                            ROOT_ID=$(echo "$LOGIN" | python3 -c "import sys,json;print(json.load(sys.stdin).get('data',{}).get('id',1))" 2>/dev/null || echo 1)
+                            curl -s -X PUT "http://localhost:3000/api/user/" \
+                                -H "Content-Type: application/json" -b "$COOKIE_JAR" \
+                                -H "New-Api-User: ${ROOT_ID}" \
+                                -d "{\"id\":${ROOT_ID},\"username\":\"root\",\"password\":\"${orig_pw}\"}" >/dev/null 2>&1 || true
+                            echo "[cleanup] mixapi root 密码已恢复"
+                        else
+                            # temp 密码也失效——尝试用 original 密码登录（可能已被手动改回）
+                            LOGIN2=$(curl -s -X POST "http://localhost:3000/api/user/login" \
+                                -H "Content-Type: application/json" -c "$COOKIE_JAR" \
+                                -d "{\"username\":\"root\",\"password\":\"${orig_pw}\"}" 2>/dev/null)
+                            if echo "$LOGIN2" | python3 -c "import sys,json;exit(0 if json.load(sys.stdin).get('success') else 1)" 2>/dev/null; then
+                                echo "[cleanup] mixapi 密码无需恢复"
+                            else
+                                echo "[cleanup] 警告: 无法登录 MIXAPI，密码未恢复" >&2
+                            fi
+                        fi
+                        rm -f "$COOKIE_JAR"
+                    fi
+                    ;;
+                *)
+                    restore_pw="${restore_password:-}"
+                    if [ -n "$restore_pw" ]; then
+                        if systemctl is-active filebrowser &>/dev/null; then
+                            systemctl stop filebrowser 2>/dev/null
+                            sleep 1
+                        fi
+                        /usr/local/bin/filebrowser users update admin \
+                            --database=/data/filebrowser.db \
+                            --password="$restore_pw" 2>/dev/null || true
+                        systemctl start filebrowser 2>/dev/null || true
+                        echo "[cleanup] admin 密码已恢复"
+                    fi
+                    ;;
+            esac
             rm -f "$marker"
         fi
     done

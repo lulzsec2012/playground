@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+#
+# mixapi-temp-user — 生成 MIXAPI 临时密码（自动恢复）
+#
+# 用法: mixapi-temp-user [ttl]
+#   ttl: 30m, 1h, 2h, 8h（默认 2h）
+#
+# 原理: SSH 到文件服务器
+#   ├─ 保存当前 root 密码
+#   ├─ 修改 root 密码为 8 位随机数字
+#   └─ 到期自动恢复原密码（由 cleanup cron 处理）
+#
+# 要求: 本机已接入 Tailscale，能 SSH 访问 fileserver 节点
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat <<EOF
+生成 MIXAPI 临时密码（自动恢复）
+
+用法: mixapi-temp-user [ttl]
+
+参数:
+  ttl  有效期（可选，默认 2h）
+        格式: 30m, 1h, 2h, 8h
+
+示例:
+  mixapi-temp-user 1h      # 1 小时
+  mixapi-temp-user 8h      # 8 小时
+  mixapi-temp-user         # 默认 2 小时
+
+要求: 本机已接入 Tailscale，能通过 SSH 访问 fileserver 节点
+EOF
+    exit 1
+}
+
+case "${1:-}" in
+    -h|--help) usage ;;
+esac
+
+FS_HOST="${FS_HOST:-fileserver}"
+FS_SSH_USER="${FS_SSH_USER:-lzlu}"
+TTL="${1:-2h}"
+
+echo "[mixapi] 连接文件服务器 (${FS_SSH_USER}@${FS_HOST})..." >&2
+echo "[mixapi] 生成临时密码 (有效期 ${TTL})..." >&2
+
+REMOTE_SCRIPT=$(mktemp)
+cat > "$REMOTE_SCRIPT" << 'REMOTESCRIPT'
+set -euo pipefail
+TTL="$1"; TTL_CLEAN="$2"
+
+MIXAPI_CRED="$HOME/.mixapi/.credentials"
+TEMP_DIR="/data/etc/temp-users"
+MARKER="$TEMP_DIR/mixapi-root.conf"
+COOKIE_JAR=$(mktemp)
+trap 'rm -f "$COOKIE_JAR"' EXIT
+
+# 读取当前 root 密码
+ROOT_PASS=$(python3 -c "import json,os;c=json.load(open(os.path.join(os.environ['HOME'],'.mixapi','.credentials')));print(c['root']['password'])")
+[ -z "$ROOT_PASS" ] && { echo "ERROR: 无法读取 root 密码"; exit 1; }
+
+# 登录
+LOGIN=$(curl -s -X POST "http://localhost:3000/api/user/login" \
+    -H "Content-Type: application/json" -c "$COOKIE_JAR" \
+    -d "{\"username\":\"root\",\"password\":\"${ROOT_PASS}\"}")
+echo "$LOGIN" | python3 -c "import sys,json;exit(0 if json.load(sys.stdin).get('success') else 1)" 2>/dev/null || { echo "ERROR: 登录失败"; exit 1; }
+ROOT_ID=$(echo "$LOGIN" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['id'])" 2>/dev/null)
+
+# 生成 8 位随机数字密码（MIXAPI 要求最少 8 位）
+NEW_PASS=$(python3 -c "import secrets;print(secrets.randbelow(90000000)+10000000)")
+
+# 修改密码
+UPDATE=$(curl -s -X PUT "http://localhost:3000/api/user/" \
+    -H "Content-Type: application/json" -b "$COOKIE_JAR" \
+    -H "New-Api-User: ${ROOT_ID}" \
+    -d "{\"id\":${ROOT_ID},\"username\":\"root\",\"password\":\"${NEW_PASS}\"}")
+echo "$UPDATE" | python3 -c "import sys,json;exit(0 if json.load(sys.stdin).get('success') else 1)" 2>/dev/null || { echo "ERROR: 密码修改失败"; exit 1; }
+
+# 写 marker（到期恢复原密码）
+sudo mkdir -p "$TEMP_DIR"
+EXPIRES=$(python3 -c "
+import time
+ttl_str = '$TTL_CLEAN'
+unit = ttl_str[-1]
+val = int(ttl_str[:-1])
+mult = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unit, 60)
+print(int(time.time()) + val * mult)
+")
+sudo tee "$MARKER" >/dev/null <<EOF
+service=mixapi
+username=root
+original_password=${ROOT_PASS}
+temp_password=${NEW_PASS}
+expires_at=${EXPIRES}
+ttl=${TTL}
+created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+
+echo "OK:root:${NEW_PASS}:${TTL}"
+REMOTESCRIPT
+
+scp -q "$REMOTE_SCRIPT" "${FS_SSH_USER}@${FS_HOST}:/tmp/_mixapi_tmpuser"
+rm -f "$REMOTE_SCRIPT"
+
+output=$(ssh "${FS_SSH_USER}@${FS_HOST}" "bash /tmp/_mixapi_tmpuser '${TTL}' '${TTL}'" 2>&1)
+ssh "${FS_SSH_USER}@${FS_HOST}" "rm -f /tmp/_mixapi_tmpuser" 2>/dev/null || true
+
+if echo "$output" | grep -q "^ERROR:"; then
+    echo "$output" >&2
+    exit 1
+fi
+
+IFS=':' read -r _ USERNAME PASSWORD TTL_OUT <<< "$(echo "$output" | grep "^OK:")"
+echo ""
+echo "  URL:      http://${FS_HOST}:3000/login"
+echo "  Username: ${USERNAME}"
+echo "  Password: ${PASSWORD}"
+echo "  Expires:  ${TTL_OUT}"
