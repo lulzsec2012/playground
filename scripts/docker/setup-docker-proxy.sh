@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # setup-docker-proxy.sh — 配置 Docker daemon HTTP 代理（需要 sudo）
 # 用法: sudo ./setup-docker-proxy.sh [proxy_host]
-#       如果不传 proxy_host，会自动用 proxy-find.sh 查找代理
+#       如果不传 proxy_host，会自动用 free.sh 查找代理
 #
-# 需搭配 scripts/proxy/proxy-find.sh 使用
+# 需搭配 scripts/proxy/free.sh 使用
 
 set -euo pipefail
 
@@ -24,9 +24,9 @@ if [ $# -ge 1 ]; then
   PROXY_HOST="$1"
 else
   info "未指定代理地址，尝试扫描 tailnet 中的 HTTP 代理..."
-  if [ -f "$SCRIPT_DIR/../proxy/proxy-find.sh" ]; then
+  if [ -f "$SCRIPT_DIR/../proxy/free.sh" ]; then
     # 复用脚本时指定只扫代理端口
-    PROXY_HOST=$(bash "$SCRIPT_DIR/../proxy/proxy-find.sh" 2>/dev/null | grep 'HTTP proxy' | head -1 | awk '{print $NF}')
+    PROXY_HOST=$(bash "$SCRIPT_DIR/../proxy/free.sh" 2>/dev/null | grep 'HTTP proxy' | head -1 | awk '{print $NF}')
   fi
   if [ -z "$PROXY_HOST" ]; then
     die "未找到可用代理。请指定代理地址: sudo $0 <ip>:<port>"

@@ -1,0 +1,260 @@
+# 模板（精简版，合并后注入免费节点）
+# 完整版替换此文件即可，merge.py 自动处理
+
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: :9090
+
+proxies: []
+
+
+proxy-groups:
+  - name: 🚀 节点选择
+    type: select
+    proxies:
+      - 🇭🇰 香港节点
+      - 🇹🇼 台湾节点
+      - 🇺🇲 美国节点
+      - 🇯🇵 日本节点
+      - 🇸🇬 新加坡节点
+      - ✈️ 手动切换
+      - ♻️ 自动选择
+      - 🔯 故障转移
+      - 🎯 全球直连
+  - name: ✈️ 手动切换
+    type: select
+    proxies:
+      - 🇸🇬 海外用户专用-新加坡
+      - 🇯🇵 海外用户专用-日本
+      - 🇺🇸 海外用户专用-美国
+  - name: 📹 Youtube油管
+    type: select
+    proxies:
+      - 🚀 节点选择
+      - 🇭🇰 香港节点
+      - 🇹🇼 台湾节点
+      - 🇺🇲 美国节点
+      - 🇯🇵 日本节点
+      - 🇸🇬 新加坡节点
+      - ✈️ 手动切换
+      - ♻️ 自动选择
+      - 🎯 全球直连
+  - name: 🎥 Netflix奈飞
+    type: select
+    proxies:
+      - 🚀 节点选择
+      - 🇸🇬 新加坡节点
+      - 🇭🇰 香港节点
+      - 🇹🇼 台湾节点
+      - 🇺🇲 美国节点
+      - 🇯🇵 日本节点
+      - ✈️ 手动切换
+      - ♻️ 自动选择
+      - 🎯 全球直连
+  - name: 📺 巴哈姆特
+    type: select
+    proxies:
+      - 🇹🇼 台湾节点
+      - 🚀 节点选择
+      - ✈️ 手动切换
+      - 🎯 全球直连
+  - name: 📺 哔哩哔哩
+    type: select
+    proxies:
+      - 🇹🇼 台湾节点
+      - 🇭🇰 香港节点
+      - 🎯 全球直连
+  - name: 📀 EMBY影视
+    type: select
+    proxies:
+      - 🇭🇰 香港节点
+      - 🇸🇬 新加坡节点
+      - 🇹🇼 台湾节点
+      - 🎯 全球直连
+  - name: 🌍 国外媒体
+    type: select
+    proxies:
+      - 🚀 节点选择
+      - 🇭🇰 香港节点
+      - 🇹🇼 台湾节点
+      - 🇺🇲 美国节点
+      - 🇯🇵 日本节点
+      - 🇸🇬 新加坡节点
+      - ✈️ 手动切换
+      - ♻️ 自动选择
+      - 🎯 全球直连
+  - name: 🌏 国内媒体
+    type: select
+    proxies:
+      - 🎯 全球直连
+      - 🚀 节点选择
+      - ✈️ 手动切换
+  - name: 📲 Telegram电报
+    type: select
+    proxies:
+      - 🇭🇰 香港节点
+      - 🇹🇼 台湾节点
+      - 🇺🇲 美国节点
+      - 🇯🇵 日本节点
+      - 🇸🇬 新加坡节点
+      - ✈️ 手动切换
+      - ♻️ 自动选择
+      - 🎯 全球直连
+  - name: 📱 Twitter推特
+    type: select
+    proxies:
+      - 🇭🇰 香港节点
+      - 🇹🇼 台湾节点
+      - 🇺🇲 美国节点
+      - 🇯🇵 日本节点
+      - 🇸🇬 新加坡节点
+      - ✈️ 手动切换
+      - ♻️ 自动选择
+      - 🎯 全球直连
+  - name: 🎶 网易云音乐
+    type: select
+    proxies:
+      - 🎯 全球直连
+  - name: ⛓️ 微软云盘
+    type: select
+    proxies:
+      - 🎯 全球直连
+      - 🚀 节点选择
+      - 🇭🇰 香港节点
+      - 🇺🇲 美国节点
+      - ✈️ 手动切换
+  - name: 🍎 苹果服务
+    type: select
+    proxies:
+      - 🎯 全球直连
+      - 🚀 节点选择
+      - 🇭🇰 香港节点
+      - 🇺🇲 美国节点
+      - ✈️ 手动切换
+  - name: 🎮 游戏平台
+    type: select
+    proxies:
+      - 🇭🇰 香港节点
+      - 🇺🇲 美国节点
+      - 🚀 节点选择
+      - ✈️ 手动切换
+      - 🎯 全球直连
+  - name: 📢 谷歌FCM
+    type: select
+    proxies:
+      - 🎯 全球直连
+      - 🚀 节点选择
+      - 🇭🇰 香港节点
+      - 🇺🇲 美国节点
+      - ✈️ 手动切换
+      - 🎯 全球直连
+  - name: 🤖 AI
+    type: select
+    proxies:
+      - 🇭🇰 香港节点
+      - 🇹🇼 台湾节点
+      - 🇺🇲 美国节点
+      - 🇯🇵 日本节点
+      - 🇸🇬 新加坡节点
+      - 🎯 全球直连
+  - name: ♻️ 自动选择
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies:
+      - 🇸🇬 海外用户专用-新加坡
+      - 🇯🇵 海外用户专用-日本
+      - 🇺🇸 海外用户专用-美国
+  - name: 🔯 故障转移
+    type: fallback
+    url: http://cp.cloudflare.com/generate_204
+    interval: 180
+    proxies:
+      - 🇸🇬 海外用户专用-新加坡
+      - 🇯🇵 海外用户专用-日本
+      - 🇺🇸 海外用户专用-美国
+  - name: 🌐 访问官网
+    type: select
+    proxies:
+      - 🇭🇰 香港节点
+      - 🔯 故障转移
+  - name: 📧 邮件客户端
+    type: select
+    proxies:
+      - 🇭🇰 香港节点
+  - name: 🛩️ 特殊网站
+    type: select
+    proxies:
+      - 🇭🇰 香港节点
+      - 🇹🇼 台湾节点
+      - 🇺🇲 美国节点
+      - 🇯🇵 日本节点
+      - 🇸🇬 新加坡节点
+      - ✈️ 手动切换
+      - ♻️ 自动选择
+      - 🔯 故障转移
+  - name: 🎯 全球直连
+    type: select
+    proxies:
+      - DIRECT
+  - name: 🛑 广告拦截
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: 🍃 应用净化
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: 🕹 规则之外
+    type: select
+    proxies:
+      - 🚀 节点选择
+      - ✈️ 手动切换
+      - 🎯 全球直连
+  - name: 🇭🇰 香港节点
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 600
+    proxies:
+      - DIRECT
+  - name: 🇹🇼 台湾节点
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 600
+    proxies:
+      - DIRECT
+  - name: 🇺🇲 美国节点
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 600
+    proxies:
+      - 🇺🇸 海外用户专用-美国
+  - name: 🇯🇵 日本节点
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 600
+    proxies:
+      - 🇯🇵 海外用户专用-日本
+  - name: 🇸🇬 新加坡节点
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 600
+    proxies:
+      - 🇸🇬 海外用户专用-新加坡
+rules:
+  # 直连
+  - DOMAIN-SUFFIX,cn,DIRECT
+  - DOMAIN-SUFFIX,baidu.com,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - IP-CIDR,17.0.0.0/8,DIRECT
+  # 代理（使用第一个终端组的节点）
+  - MATCH,🚀 节点选择

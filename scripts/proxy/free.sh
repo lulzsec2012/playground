@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# proxy-find.sh — 扫描 tailnet 发现可用代理并配置 git
+# free.sh — 扫描 tailnet 发现可用代理并配置 git
 #
 # 用法:
-#   source proxy-find.sh           # 扫描并设置代理
-#   source proxy-find.sh --test    # 只测试不设置
-#   source proxy-find.sh --show    # 显示当前代理状态
+#   source free.sh           # 扫描并设置代理
+#   source free.sh --test    # 只测试不设置
+#   source free.sh --show    # 显示当前代理状态
 #
 # 注意: 需要用 source 执行才能在当前 shell 设置环境变量
 
@@ -41,7 +41,7 @@ SHOW_ONLY=false
       exit 0 ;;
     --test) SHOW_ONLY=true ;;
     -h|--help)
-      echo "用法: source proxy-find.sh [--test|--show]"
+      echo "用法: source free.sh [--test|--show]"
       echo "  source 执行才能修改当前 shell 环境变量"
       exit 0 ;;
     *) echo "未知参数: $1"; exit 1 ;;
@@ -54,12 +54,17 @@ info "  Tailnet 代理扫描"
 info "══════════════════════════════════════"
 echo ""
 
-# ===== 1. 获取在线节点 =====
-NODES=$(docker exec "$CONTAINER_NAME" tailscale status 2>/dev/null | \
-  awk '/^100\./ && !/offline/ {print $1, $2}') || {
-  err "无法获取 tailscale 节点列表，容器 $CONTAINER_NAME 是否在运行？"
+# ===== 1. 获取在线节点（优先 native tailscale，回退 Docker 容器）=====
+NODES=$(tailscale status 2>/dev/null | awk '/^100\./ && !/offline/ {print $1, $2}' || true)
+if [ -z "$NODES" ]; then
+  NODES=$(docker exec "$CONTAINER_NAME" tailscale status 2>/dev/null | \
+    awk '/^100\./ && !/offline/ {print $1, $2}') || true
+fi
+if [ -z "$NODES" ]; then
+  err "无法获取 tailscale 节点列表"
+  err "请确认已接入 tailnet: tailscale status"
   exit 1
-}
+fi
 [ -z "$NODES" ] && { warn "tailnet 中没有在线节点"; exit 1; }
 
 TARGETS=""
@@ -148,41 +153,47 @@ while IFS='|' read -r _ ip name port; do
   # 已找到代理则跳过
   [ -n "$BEST_PROXY" ] && continue
 
-    flag=""
-    url_prefix=""
-    if [ "$proxy_type" = "http" ]; then
-      flag="-x http://$ip:$port"
-      url_prefix="http"
-    else
-      flag="--socks5 $ip:$port"
-      url_prefix="socks5"
-    fi
+  # 从端口推断代理类型
+  case "$port" in
+    7890|7897|7891|3128|8080) proxy_type="http" ;;
+    1080|10808)               proxy_type="socks5" ;;
+    *)                        proxy_type="http" ;;
+  esac
 
-    # ---- 第一关: GitHub 可达 ----
-    gh_code=$(curl -s --connect-timeout 3 --max-time 5 $flag \
-      -o /dev/null -w "%{http_code}" "https://github.com" 2>/dev/null || true)
-    [ "$gh_code" != "200" ] && continue
+  flag=""
+  url_prefix=""
+  if [ "$proxy_type" = "http" ]; then
+    flag="-x http://$ip:$port"
+    url_prefix="http"
+  else
+    flag="--socks5 $ip:$port"
+    url_prefix="socks5"
+  fi
 
-    # ---- 第二关: Google 可达 ----
-    gg_code=$(curl -s --connect-timeout 3 --max-time 5 $flag \
-      -o /dev/null -w "%{http_code}" "https://www.google.com" 2>/dev/null || true)
-    [ "$gg_code" != "200" ] && { err "$name ($ip:$port) → $proxy_type 测试: GitHub ✅ Google ❌"; continue; }
+  # ---- 第一关: GitHub 可达 ----
+  gh_code=$(curl -s --connect-timeout 3 --max-time 5 $flag \
+    -o /dev/null -w "%{http_code}" "https://github.com" 2>/dev/null || true)
+  [ "$gh_code" != "200" ] && continue
 
-    # ---- 第三关: Git clone 可用 ----
-    if ! git -c http.proxy="$url_prefix://$ip:$port" \
-      ls-remote --heads https://github.com/aiprodcoder/MIXAPI.git \
-      &>/dev/null; then
-      err "$name ($ip:$port) → $proxy_type 测试: GitHub ✅ Google ✅ Git ❌"
-      continue
-    fi
+  # ---- 第二关: Google 可达 ----
+  gg_code=$(curl -s --connect-timeout 3 --max-time 5 $flag \
+    -o /dev/null -w "%{http_code}" "https://www.google.com" 2>/dev/null || true)
+  [ "$gg_code" != "200" ] && { err "$name ($ip:$port) → $proxy_type 测试: GitHub ✅ Google ❌"; continue; }
 
-    # 三项全过！
-    ok "$name ($ip:$port) → $proxy_type 代理 ✅ (GitHub+Google+Git 全部通过)"
-    BEST_PROXY="$ip:$port"
-    BEST_TYPE="$proxy_type"
-    BEST_NAME="$name"
-    break
-  done
+  # ---- 第三关: Git clone 可用 ----
+  if ! git -c http.proxy="$url_prefix://$ip:$port" \
+    ls-remote --heads https://github.com/aiprodcoder/MIXAPI.git \
+    &>/dev/null; then
+    err "$name ($ip:$port) → $proxy_type 测试: GitHub ✅ Google ✅ Git ❌"
+    continue
+  fi
+
+  # 三项全过！
+  ok "$name ($ip:$port) → $proxy_type 代理 ✅ (GitHub+Google+Git 全部通过)"
+  BEST_PROXY="$ip:$port"
+  BEST_TYPE="$proxy_type"
+  BEST_NAME="$name"
+  break
 done <<< "$OPEN_PORTS"
 echo ""
 
@@ -231,7 +242,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   echo "    ✓ git config --global https.proxy = $PROXY_URL"
   echo ""
   echo "  如需设置环境变量，请重新用 source 执行:"
-  echo "    source proxy-find.sh"
+  echo "    source free.sh"
   echo ""
   git config --global http.proxy "$PROXY_URL"
   git config --global https.proxy "$PROXY_URL"

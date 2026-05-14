@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 #
-# fetch.sh — 从公开 GitHub 源下载免费 Clash 代理，合并到 RenzheCloud 模板
+# fetch.sh — 从公开 GitHub 源下载免费 Clash 代理，合并到模板
 #
 # 用法: bash fetch.sh
 #        bash fetch.sh --dry-run      # 只下载不合并，预览结果
 #        bash fetch.sh --show         # 显示当前配置信息
 #
-# 输出: $SCRIPT_DIR/config.free.yaml
+# 输出: $SCRIPT_DIR/config.yaml
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MERGE_PY="$SCRIPT_DIR/merge.py"
-OUTPUT="$SCRIPT_DIR/config.free.yaml"
+OUTPUT="$SCRIPT_DIR/config.yaml"
 TMPDIR=""
-RENZHE="$HOME/Library/Mobile Documents/iCloud~ws~stash~icloud/Documents/RenzheCloud.yaml"
+# 模板路径：优先脚本同目录，也可通过 TEMPLATE 环境变量覆盖
+TEMPLATE="${TEMPLATE:-$SCRIPT_DIR/template.yaml}"
 DRY_RUN=false
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -33,7 +34,7 @@ SOURCES=(
 
 usage() {
     cat <<EOF
-从多个 GitHub 源下载免费 Clash 代理配置，合并到 RenzheCloud 模板。
+从多个 GitHub 源下载免费 Clash 代理配置，合并到模板。
 
 用法: bash $(basename "$0") [选项]
 
@@ -43,7 +44,7 @@ usage() {
   -h, --help  显示此帮助
 
 输出: ${OUTPUT}
-模板: ${RENZHE}
+模板: ${TEMPLATE}
 EOF
     exit 1
 }
@@ -74,15 +75,15 @@ main() {
     echo "══════════════════════════════════════"
     echo ""
 
-    if [ ! -f "$RENZHE" ]; then
-        echo "错误: RenzheCloud 模板不存在: $RENZHE" >&2
+    if [ ! -f "$TEMPLATE" ]; then
+        echo "错误: 模板不存在: $TEMPLATE" >&2
         exit 1
     fi
     if ! command -v python3 &>/dev/null; then
         echo "错误: 需要 python3" >&2
         exit 1
     fi
-    echo "  OK  RenzheCloud 模板就绪"
+    echo "  OK  模板就绪"
 
     TMPDIR=$(mktemp -d)
     trap cleanup EXIT
@@ -135,8 +136,8 @@ main() {
     fi
 
     echo ""
-    echo "[2/3] 合并代理到 RenzheCloud 模板..."
-    python3 "$MERGE_PY" "$RENZHE" "$OUTPUT" "${DOWNLOADED[@]}" || {
+    echo "[2/3] 合并代理到模板..."
+    python3 "$MERGE_PY" "$TEMPLATE" "$OUTPUT" "${DOWNLOADED[@]}" || {
         echo "错误: 合并失败" >&2
         exit 1
     }
