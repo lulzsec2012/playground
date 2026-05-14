@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# find-and-set-proxy.sh — 扫描 tailnet 发现可用代理并配置 git
+# proxy-find.sh — 扫描 tailnet 发现可用代理并配置 git
 #
 # 用法:
-#   source find-and-set-proxy.sh           # 扫描并设置代理
-#   source find-and-set-proxy.sh --test    # 只测试不设置
-#   source find-and-set-proxy.sh --show    # 显示当前代理状态
+#   source proxy-find.sh           # 扫描并设置代理
+#   source proxy-find.sh --test    # 只测试不设置
+#   source proxy-find.sh --show    # 显示当前代理状态
 #
 # 注意: 需要用 source 执行才能在当前 shell 设置环境变量
 
@@ -41,7 +41,7 @@ SHOW_ONLY=false
       exit 0 ;;
     --test) SHOW_ONLY=true ;;
     -h|--help)
-      echo "用法: source find-and-set-proxy.sh [--test|--show]"
+      echo "用法: source proxy-find.sh [--test|--show]"
       echo "  source 执行才能修改当前 shell 环境变量"
       exit 0 ;;
     *) echo "未知参数: $1"; exit 1 ;;
@@ -231,7 +231,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   echo "    ✓ git config --global https.proxy = $PROXY_URL"
   echo ""
   echo "  如需设置环境变量，请重新用 source 执行:"
-  echo "    source find-and-set-proxy.sh"
+  echo "    source proxy-find.sh"
   echo ""
   git config --global http.proxy "$PROXY_URL"
   git config --global https.proxy "$PROXY_URL"
