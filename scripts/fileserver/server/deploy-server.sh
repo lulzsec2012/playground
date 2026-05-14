@@ -228,9 +228,8 @@ step_configure_filebrowser() {
         echo "  用户 admin 已创建"
     fi
 
-    # 保存凭据到隐藏文件（不打印到终端历史）
-    echo "admin:$admin_pass" | sudo tee "$FILES_ROOT/.admin-cred" >/dev/null
-    sudo chmod 600 "$FILES_ROOT/.admin-cred"
+    # 密码仅在部署时打印到终端，不留文件（.admin-cred 曾保存在 /data/files/ 下，
+    # 但该目录是 Filebrowser document root，属于暴露风险）
 
     # 修复文件所有权
     sudo chown -R "$FILEBROWSER_USER:$FILEBROWSER_USER" "$FILES_ROOT" "$FILEBROWSER_DB"
@@ -441,10 +440,7 @@ step_print_result() {
         echo "     (仅 Tailscale 内网可访问)"
     fi
 
-    if [ -f "$FILES_ROOT/.admin-cred" ]; then
-        echo "  🔑 管理密码: $(cat "$FILES_ROOT/.admin-cred")"
-        echo "     (已保存到 $FILES_ROOT/.admin-cred)"
-    fi
+    echo "  🔑 管理密码已在 [Step 4/9] 中显示，请保存到密码管理器"
 
     echo "  🔌 SSH 通道就绪: ssh $(whoami)@$(hostname -I 2>/dev/null | awk '{print $1}')"
     echo "  🔌 fs-share-helper: $(sudo $HELPER_DST --help 2>&1 | head -1)"
@@ -539,8 +535,8 @@ undo() {
                 sudo systemctl daemon-reload
                 ;;
             04)
-                echo "  删除 Filebrowser 数据库和凭据…"
-                sudo rm -f "$FILEBROWSER_DB" "$FILES_ROOT/.admin-cred"
+                echo "  删除 Filebrowser 数据库…"
+                sudo rm -f "$FILEBROWSER_DB"
                 ;;
             03)
                 echo "  删除公网 IP 记录…"

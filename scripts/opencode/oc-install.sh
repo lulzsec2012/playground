@@ -3,47 +3,53 @@ set -e
 
 # ============================================
 # OpenCode + 插件安装脚本
-# 在开发容器内执行: bash scripts/oc-install.sh
+# 在开发容器内执行: bash scripts/opencode/oc-install.sh
 # ============================================
 
 echo "========================================"
 echo "  OpenCode Environment Setup"
 echo "========================================"
 
-# ---------- 1. 安装 bun ----------
+# ---------- 1. 安装 opencode CLI（官方安装方式，无需 sudo）----------
 echo ""
-echo "[1/7] Installing bun..."
+echo "[1/7] Installing opencode CLI..."
+if command -v opencode &>/dev/null; then
+    echo "  opencode already installed: $(opencode --version)"
+else
+    echo "  通过官方脚本安装到 \$HOME/.opencode/bin/ ..."
+    if curl -fsSL https://opencode.ai/install | bash; then
+        # 官方脚本会修改 PATH，立即加载以便后续步骤使用
+        export PATH="$HOME/.opencode/bin:$PATH"
+        echo "  opencode installed: $(opencode --version)"
+    else
+        echo "  ⚠️  官方安装失败，降级到 npm..."
+        if command -v npm &>/dev/null; then
+            npm install -g opencode
+            echo "  opencode installed: $(opencode --version)"
+        else
+            echo "  ❌ npm 也不可用，请手动安装 opencode" >&2
+            exit 1
+        fi
+    fi
+fi
+
+# ---------- 2. 安装 bun ----------
+echo ""
+echo "[2/7] Installing bun..."
 if command -v bun &>/dev/null; then
     echo "  bun already installed: $(bun --version)"
 else
     curl -fsSL https://bun.sh/install | bash
-    # 重新加载 PATH（bun 安装后会加到 ~/.bashrc）
     export PATH="$HOME/.bun/bin:$PATH"
     echo "  bun installed: $(bun --version)"
-fi
-
-# ---------- 2. 安装 opencode ----------
-echo ""
-echo "[2/7] Installing opencode CLI..."
-if command -v opencode &>/dev/null; then
-    echo "  opencode already installed: $(opencode --version)"
-else
-    if command -v bun &>/dev/null; then
-        bun install -g opencode
-    else
-        npm install -g opencode
-    fi
-    echo "  opencode installed: $(opencode --version)"
 fi
 
 # ---------- 3. 安装 oh-my-opencode ----------
 echo ""
 echo "[3/7] Installing oh-my-opencode plugin..."
-# 遵循官方安装指南
 if [ -d "$HOME/.config/opencode/plugins/oh-my-opencode" ] || npm ls -g oh-my-opencode &>/dev/null; then
     echo "  oh-my-opencode already installed"
 else
-    # 从 npm 安装
     npm install -g oh-my-opencode
     echo "  oh-my-opencode installed"
     echo "  配置指南: https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/refs/heads/master/docs/guide/installation.md"
@@ -60,7 +66,7 @@ else
     echo "  在项目目录执行 'openspec init' 初始化"
 fi
 
-# ---------- 5. 安装 superpowers（14个核心技能）----------
+# ---------- 5. 安装 superpowers（14 个核心技能）----------
 echo ""
 echo "[5/7] Installing superpowers skills..."
 if [ -d "$HOME/.opencode/skills/obra/superpowers" ]; then
@@ -115,6 +121,20 @@ else
     echo "  opencode-analytics installed"
     echo "  启动: opencode-analytics --port 3456 --no-open &"
     echo "  访问: http://<容器IP>:3456"
+fi
+
+# opencode-multi（需要 Rust toolchain）
+if command -v opencode-multi &>/dev/null; then
+    echo "  opencode-multi already installed: $(opencode-multi --version 2>/dev/null || echo 'ok')"
+else
+    if command -v cargo &>/dev/null; then
+        echo "  Installing opencode-multi (cargo install)..."
+        cargo install opencode-multi
+        echo "  opencode-multi installed"
+    else
+        echo "  ⚠️  cargo 未安装，跳过 opencode-multi"
+        echo "    安装 Rust: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    fi
 fi
 
 echo ""

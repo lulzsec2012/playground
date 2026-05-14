@@ -29,7 +29,12 @@ set -euo pipefail
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLAYGROUND_DIR="$(cd "${SCRIPTS_DIR}/../.." && pwd)"
 TEMPLATES_DIR="${SCRIPTS_DIR}/templates"
-VPN_CFG="${PLAYGROUND_DIR}/scripts/docker/data/vpn.cfg"
+# 自动探测 vpn.cfg：优先 playground/data/vpn.cfg，回退旧路径 scripts/docker/data/
+if [ -f "${PLAYGROUND_DIR}/data/vpn.cfg" ]; then
+    VPN_CFG="${PLAYGROUND_DIR}/data/vpn.cfg"
+else
+    VPN_CFG="${PLAYGROUND_DIR}/scripts/docker/data/vpn.cfg"
+fi
 TS_IMAGE="${TS_IMAGE:-tailscale/tailscale:stable}"
 
 # 颜色

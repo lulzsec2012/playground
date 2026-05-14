@@ -55,6 +55,8 @@ readonly SKIP_NODES="aliyun-basic cn-derp lizhi desktop"
 readonly INTERVAL_ACTIVE=300
 readonly INTERVAL_INACTIVE=1800
 readonly ACTIVE_MISS_THRESHOLD=3
+# 每轮 cron 至少扫描 N 个服务（防止全部 inactive 时 zero-probe 窗口）
+readonly MIN_SCAN_PER_CYCLE=2
 
 # ============ State Management ============
 
@@ -367,7 +369,7 @@ print('yes' if svc else 'no')
   tmpdir=$(mktemp -d)
   _CLEANUP_DIRS+=("$tmpdir")
 
-  # Find due services using active_serve_port
+  # Find due services using active_serve_port + minimum per-cycle guarantee
   local due_list
   due_list=$(python3 << PYEOF
 import json, time, sys, os
@@ -383,6 +385,8 @@ if not active_set:
         if s.get('status') == 'active':
             active_set.add(f"{s.get('node','')}:{s.get('port',0)}")
 
+# Pass 1: due list by interval
+due = []
 for s in services:
     last_scan = s.get('last_scan', '')
     key = f"{s.get('node','')}:{s.get('port',0)}"
@@ -392,9 +396,26 @@ for s in services:
         last_epoch = int(time.mktime(time.strptime(last_scan, '%Y-%m-%dT%H:%M:%SZ')))
     except Exception:
         last_epoch = 0
-    due = (now_epoch - last_epoch) >= interval
-    if due:
-        print(f"{s['ip']}:{s['port']}:{s.get('node','')}:{s.get('service','')}")
+    if (now_epoch - last_epoch) >= interval:
+        due.append(s)
+
+# Pass 2: fallback — if fewer than MIN_SCAN_PER_CYCLE are due, scan the oldest
+#          unprobed services to guarantee continuous probing
+min_scan = ${MIN_SCAN_PER_CYCLE}
+if len(due) < min_scan:
+    # Build set of already-selected keys
+    selected_keys = set()
+    for s in due:
+        selected_keys.add((s.get('ip',''), s.get('port',0)))
+    # Sort remaining services by last_scan (oldest first), pick fillers
+    remaining = [s for s in services
+                 if (s.get('ip',''), s.get('port',0)) not in selected_keys]
+    remaining.sort(key=lambda s: s.get('last_scan', ''))
+    fillers = remaining[:min_scan - len(due)]
+    due.extend(fillers)
+
+for s in due:
+    print(f"{s['ip']}:{s['port']}:{s.get('node','')}:{s.get('service','')}")
 PYEOF
 )
 
@@ -437,7 +458,7 @@ PYEOF
   # New service detection: for each due node, quick-check other ports
   local due_nodes
   due_nodes=$(python3 << PYEOF
-import json, sys
+import json, sys, time
 
 data = json.loads("""${json_data}""")
 services = data.get('services', [])
@@ -450,21 +471,35 @@ if not active_set:
         if s.get('status') == 'active':
             active_set.add(f"{s.get('node','')}:{s.get('port',0)}")
 
+# Pass 1: due IPs by interval
+due_ips = []
 seen_ips = set()
 for s in services:
     last_scan = s.get('last_scan', '')
     key = f"{s.get('node','')}:{s.get('port',0)}"
     interval = ${INTERVAL_ACTIVE} if key in active_set else ${INTERVAL_INACTIVE}
     try:
-        import time
         last_epoch = int(time.mktime(time.strptime(last_scan, '%Y-%m-%dT%H:%M:%SZ')))
     except Exception:
         last_epoch = 0
-    if (now_epoch - last_epoch) >= interval:
-        ip = s.get('ip', '')
+    ip = s.get('ip', '')
+    if ip not in seen_ips and (now_epoch - last_epoch) >= interval:
+        due_ips.append(ip)
+        seen_ips.add(ip)
+
+# Pass 2: fallback — if fewer than MIN_SCAN_PER_CYCLE nodes, scan oldest
+min_scan = ${MIN_SCAN_PER_CYCLE}
+if len(due_ips) < min_scan:
+    remaining = [s for s in services if s.get('ip','') not in seen_ips]
+    remaining.sort(key=lambda s: s.get('last_scan', ''))
+    for s in remaining[:min_scan - len(due_ips)]:
+        ip = s.get('ip','')
         if ip not in seen_ips:
-            print(ip)
+            due_ips.append(ip)
             seen_ips.add(ip)
+
+for ip in due_ips:
+    print(ip)
 PYEOF
 )
 
@@ -541,7 +576,7 @@ for fname in os.listdir(tmpdir):
                 if s.get('ip') == ip and s.get('port') == port:
                     s['miss_count'] = s.get('miss_count', 0) + 1
                     s['last_scan'] = now_ts
-                    if s['miss_count'] >= ACTIVE_MISS and s.get('status') == 'active':
+                    if s['miss_count'] >= ${ACTIVE_MISS_THRESHOLD} and s.get('status') == 'active':
                         s['status'] = 'inactive'
                         changed = True
         else:
