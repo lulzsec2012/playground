@@ -94,6 +94,13 @@ generate() {
         echo "  .authinfo"
     fi
 
+    if [[ -f "$DATA_DIR/env.cfg" ]]; then
+        echo "# --- env.cfg ---" >> "$target_dir/.bashrc"
+        cat "$DATA_DIR/env.cfg" >> "$target_dir/.bashrc"
+        echo "" >> "$target_dir/.bashrc"
+        echo "  env.cfg -> .bashrc ($(wc -l < "$DATA_DIR/env.cfg") lines)"
+    fi
+
     echo "✅ Config generated: $target_dir"
 }
 

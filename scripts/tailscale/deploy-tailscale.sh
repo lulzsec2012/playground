@@ -29,7 +29,7 @@ set -euo pipefail
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLAYGROUND_DIR="$(cd "${SCRIPTS_DIR}/../.." && pwd)"
 TEMPLATES_DIR="${SCRIPTS_DIR}/templates"
-VPN_CFG="${PLAYGROUND_DIR}/data/vpn.cfg"
+VPN_CFG="${PLAYGROUND_DIR}/scripts/docker/data/vpn.cfg"
 TS_IMAGE="${TS_IMAGE:-tailscale/tailscale:stable}"
 
 # 颜色

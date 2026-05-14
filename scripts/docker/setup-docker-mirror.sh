@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# setup-docker.sh — Docker 镜像加速器配置脚本
+# setup-docker-mirror.sh — Docker 镜像加速器配置脚本
 # 适用于中国大陆服务器加速 Docker Hub 拉取
 # ============================================================
 set -euo pipefail

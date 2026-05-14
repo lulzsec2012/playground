@@ -5,26 +5,36 @@ Containerized development environments for AI/compiler work.
 ## Structure
 
 ```
-├── auto_script.sh         Generate container $HOME config
-├── run.sh                 Multi-instance container runner (source me)
-├── home-config/           Template files for container home directories
-│   ├── bashrc/            .bashrc fragments (sourced in order)
-│   ├── profile            .profile template
-│   ├── gitconfig          Git config template
-│   ├── pip/pip.conf       pip with Aliyun mirror
-│   └── ssh/config         SSH client config
-├── data/                  Private data (gitignored — keys, VPN cfg, etc.)
-│   └── ssh_keys.cfg       Public keys → authorized_keys
-├── docker/                [git submodule] lulzsec2012/docker — Dockerfiles
-├── scripts/utils.sh       Utility functions
-└── modify_emacs.sh        Emacs server setup
+├── scripts/
+│   ├── docker/
+│   │   ├── work-server.sh         Multi-instance container runner (source me)
+│   │   ├── generate-home-config.sh  Generate container $HOME config
+│   │   ├── home-config/           Template files for container home directories
+│   │   │   ├── bashrc/            .bashrc fragments (sourced in order)
+│   │   │   ├── profile            .profile template
+│   │   │   ├── gitconfig          Git config template
+│   │   │   ├── pip/pip.conf       pip with Aliyun mirror
+│   │   │   └── ssh/config         SSH client config
+│   │   ├── data/                  Private data (gitignored — keys, VPN cfg, etc.)
+│   │   │   └── ssh_keys.cfg       Public keys → authorized_keys
+│   │   ├── setup-docker-mirror.sh Docker daemon registry mirror config
+│   │   └── setup-docker-proxy.sh  Docker daemon HTTP proxy config
+│   ├── utils.sh                   Utility functions
+│   ├── tailscale/                 Tailscale deployment tools
+│   ├── wireguard/                 WireGuard configuration
+│   ├── socks/                     SOCKS proxy setup
+│   ├── proxy/                     Proxy configuration
+│   ├── emacs/                     Emacs setup scripts
+│   ├── hermes/                    Hermes toolkit
+│   └── mixapi/                    MIXAPI toolkit
+└── docker/                [git submodule] lulzsec2012/docker — Dockerfiles
 ```
 
 ## Usage
 
 ```bash
 # Source the runner to get work-server commands
-source run.sh
+source scripts/docker/work-server.sh
 
 # List available instances
 work-server-ls

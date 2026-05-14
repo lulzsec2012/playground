@@ -17,16 +17,16 @@ Use `/tmp/` for paths that the host Docker daemon must access
 
 ## Key Config Files
 
-- `data/ssh_keys.cfg` — public keys → authorized_keys for containers
-- `data/vpn.cfg` — env vars (CLASH_SUBSCRIPTION_URL, TAILSCALE_AUTH_KEY)
-- `home-config/bashrc/*.sh` — combined into .bashrc in order
-- `run.sh` — INSTANCES array defines port/image per instance
+- `scripts/docker/data/ssh_keys.cfg` — public keys → authorized_keys for containers
+- `scripts/docker/data/vpn.cfg` — env vars (CLASH_SUBSCRIPTION_URL, TAILSCALE_AUTH_KEY)
+- `scripts/docker/home-config/bashrc/*.sh` — combined into .bashrc in order
+- `scripts/docker/work-server.sh` — INSTANCES array defines port/image per instance
 
 ## Common Operations
 
 ### Launch a new instance
 ```bash
-source /workspace/playground/run.sh
+source /workspace/playground/scripts/docker/work-server.sh
 work-server test-v1      # port 2223
 IP=$(docker inspect $USER-work-server-test-v1 --format "{{.NetworkSettings.IPAddress}}")
 ssh $IP                  # or ssh localhost -p 2223

@@ -97,7 +97,7 @@ APT::Install-Recommends "false";
 
 ## Home 目录样式
 
-- `home-work/` 和 `home-explore/` 通过 run.sh 中的 volume 挂载到容器内用户家目录
+- `home-work/` 和 `home-explore/` 通过 work-server.sh 中的 volume 挂载到容器内用户家目录
 - `.bashrc` 配置：24-bit color、vterm/EAT 集成、CUDA 路径、ulimit 65535
 - `.gitconfig`：http/https 代理走 `socks5h://127.0.0.1:7891`（clash 默认）
 

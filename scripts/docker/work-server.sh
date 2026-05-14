@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -e
 
+# ====== Source guard: 此脚本必须 source 执行，不可直接运行 ======
+if ! (return 0 2>/dev/null); then
+    echo "错误：此脚本必须 source 执行，不可直接运行。" >&2
+    echo "" >&2
+    echo "  正确用法：" >&2
+    echo "    source scripts/docker/work-server.sh" >&2
+    echo "    work-server default        # 启动实例" >&2
+    echo "    work-server-ls             # 列出所有实例" >&2
+    echo "    work-server-exec <name>    # 进入实例" >&2
+    echo "    work-server-stop <name>    # 停止实例" >&2
+    echo "    work-server-rm <name>      # 删除实例" >&2
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -z "$HOST_IP" ]; then
@@ -8,6 +22,7 @@ if [ -z "$HOST_IP" ]; then
 fi
 : "${HOST_PORT:=}"
 
+# Dockerfiles: https://github.com/lulzsec2012/docker.git
 declare -A INSTANCES=(
     [default]="2222:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
     [test-v1]="2223:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
@@ -18,7 +33,7 @@ INSTANCES_DIR="$HOME/.docker/instances"
 CLASH_CONFIG="$HOME/.docker/clash_config"
 
 usage() {
-    echo "Usage: source run.sh && <command> [instance] [-f]"
+    echo "Usage: source work-server.sh && <command> [instance] [-f]"
     echo ""
     echo "Commands:"
     echo "  work-server [instance] [-f]    Start container for instance"
@@ -49,12 +64,13 @@ work-server() {
     fi
 
     local name="${USER}-work-server-${instance}"
-    local config_dir="/tmp/.docker-instances/${instance}"
+    local config_dir
+    config_dir=$(TMPDIR=/dev/shm mktemp -d -t "docker-instance-${instance}-XXXXXX")
+    # shellcheck disable=SC2064  # intentional: expand $config_dir now (local var out of scope on RETURN)
+    trap "rm -rf '${config_dir}'" RETURN
 
-    if [[ ! -f "$config_dir/.bashrc" || "$force" == true ]]; then
-        echo "📝 Generating config for '$instance'..."
-        bash "$SCRIPT_DIR/auto_script.sh" $([[ "$force" == true ]] && echo "-f") "$config_dir"
-    fi
+    echo "📝 Generating config for '$instance'..."
+    bash "$SCRIPT_DIR/generate-home-config.sh" "$config_dir"
 
     if docker inspect "$name" >/dev/null 2>&1; then
         $force && docker container rm -f "$name" >/dev/null 2>&1

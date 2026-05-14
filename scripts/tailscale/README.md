@@ -5,8 +5,8 @@
 ## 快速开始
 
 ```bash
-# 1. 确保 data/vpn.cfg 中包含 TAILSCALE_AUTH_KEY
-echo 'TAILSCALE_AUTH_KEY=tskey-auth-xxxxx' >> ~/playground/data/vpn.cfg
+# 1. 确保 scripts/docker/data/vpn.cfg 中包含 TAILSCALE_AUTH_KEY
+echo 'TAILSCALE_AUTH_KEY=tskey-auth-xxxxx' >> ~/playground/scripts/docker/data/vpn.cfg
 
 # 2. 部署基础节点
 cd ~/playground/scripts/tailscale
@@ -49,11 +49,11 @@ docker exec ts-my-server tailscale status
 
 ## 密钥安全机制
 
-1. **部署时：** 密钥从 `data/vpn.cfg` 读取后写入 `/dev/shm`（内存文件系统），不留磁盘
+1. **部署时：** 密钥从 `scripts/docker/data/vpn.cfg` 读取后写入 `/dev/shm`（内存文件系统），不留磁盘
 2. **运行时：** 密钥通过只读挂载传入容器，入口脚本认证后立即 `unset` + `rm -f`
 3. **重启时：** 认证状态持久化在 Docker volume 中，无需再次传入密钥
 
-确认节点成功加入 tailnet 后，可手动从 `data/vpn.cfg` 删除密钥。
+确认节点成功加入 tailnet 后，可手动从 `scripts/docker/data/vpn.cfg` 删除密钥。
 
 ## 参考资源
 
