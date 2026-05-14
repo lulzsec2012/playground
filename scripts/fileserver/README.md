@@ -15,7 +15,8 @@ scripts/fileserver/
 │   ├── deploy-tailscale.sh          # Tailscale 原生节点部署脚本
 │   ├── fs-monitor.sh                # 服务端健康监控脚本
 │   ├── fs-share-helper.sh           # 分享管理脚本（通过 SSH 调用）
-│   ├── fs-share-cleanup.sh          # 清理过期分享（crontab 每 5min）
+│   ├── fs-share-cleanup.sh          # 清理过期分享 + 临时用户（crontab 每 5min）
+│   ├── create-temp-user.sh          # 创建临时 Filebrowser 用户
 │   ├── filebrowser-site.conf.template  # Nginx 站点配置模板
 │
 ├── client/                          # 客户端（在开发机上使用）
@@ -28,6 +29,10 @@ scripts/fileserver/
 │   ├── fs-rm                        # 删除文件或目录
 │   ├── fs-mv                        # 移动/重命名
 │   ├── fs-cp                        # 复制
+│   ├── fs-df                        # 磁盘用量查看
+│   ├── fs-health                    # 连接健康检查
+│   ├── fs-config                    # 配置查看/编辑
+│   ├── fs-temp-user                 # 创建临时用户（Tailscale SSH）
 │   ├── fs-lib.sh                    # 公共函数库
 │   └── install-path.sh              # 注入 PATH 到 shell 配置
 │
@@ -322,6 +327,46 @@ fs-df
 
 > 通过 SSH 查看服务器分区使用和文件总大小。
 
+### fs-temp-user — 临时用户
+
+在 Tailscale 网络中创建自动过期的 Filebrowser 用户（用于临时分享访问权限）。
+
+```bash
+fs-temp-user [ttl]
+
+# 参数:
+#   ttl      有效期（可选，默认 1h）
+#            格式: 30m, 2h, 8h, 24h
+```
+
+**要求**：本机已接入 Tailscale，能通过 SSH 访问 `fileserver` 节点。
+
+**示例**：
+```bash
+# 创建 30 分钟有效的临时用户
+FS_HOST=fileserver FS_SSH_USER=lzlu bash fs-temp-user 30m
+
+# 输出:
+#   URL:      http://fileserver:8080/login
+#   Username: fs-1778785017
+#   Password: 418a22fa4008b4e44c9033d7
+#   Expires:  30m
+```
+
+> 凭据通过 Tailscale SSH 加密传输，不会泄漏公网 IP。
+> 临时用户有只读权限（可下载、可分享，不可增删改）。
+> 到期后由 crontab（每 5 分钟）自动清理。
+
+---
+
+## 数据安全
+
+| 措施 | 说明 |
+|------|------|
+| **凭据文件外移** | 密码等敏感文件存储在 `/data/etc/`（Filebrowser document root 之外），Web UI 不可见 |
+| **临时用户** | `fs-temp-user` 生成可过期密码，到期自动清理 |
+| **登录预填** | Filebrowser 登录页自动填 `admin` 用户名，减少输入 |
+
 ---
 
 ## 安全说明
@@ -383,6 +428,5 @@ ssh lzlu@<host> sudo /usr/local/bin/fs-share-helper delete <share-id>
 
 ## 相关文档
 
-- `../../file-server-plan.md` — 完整设计文档（含实现细节）
 - `client/fileserver.conf.TEMPLATE` — 客户端配置模板
 - `server/deploy-server.sh` — 服务端部署脚本

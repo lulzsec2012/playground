@@ -668,19 +668,11 @@ _fs_remote_df() {
 }
 
 _fs_get_public_ip() {
-    if _fs_is_tailscale; then
-        local ip
-        _fs_login
-        ip=$(curl -sf "http://${FS_HOST}:${FS_PORT}/api/raw/public-ip.txt" \
-            -H "X-Auth: ${FS_TOKEN}" 2>/dev/null) && {
-            echo "$ip"
-            return 0
-        }
-    fi
-
+    # public-ip 已移至 /data/etc/（不在 Filebrowser document root 内）
+    # 始终通过 SSH 读取（Tailscale 模式下也可用，需配置 FS_SSH_HOST）
     if [ -n "${FS_SSH_HOST:-}" ]; then
         local ip
-        ip=$(_fs_ssh "cat /data/files/public-ip.txt" 2>/dev/null) && {
+        ip=$(_fs_ssh "cat /data/etc/public-ip" 2>/dev/null) && {
             echo "$ip"
             return 0
         }

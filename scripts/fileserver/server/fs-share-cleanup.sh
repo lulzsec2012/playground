@@ -41,4 +41,28 @@ if [ "$cleaned" -gt 0 ]; then
     echo "[cleanup] 已清理 ${cleaned} 个过期分享"
 fi
 
+# === 恢复过期临时密码 ===
+MARKER_DIR="/data/etc/temp-users"
+if [ -d "$MARKER_DIR" ]; then
+    for marker in "$MARKER_DIR"/*.conf; do
+        [ ! -f "$marker" ] && continue
+        source "$marker"
+        if [ -n "${expires_at:-}" ] && [ "$(date +%s)" -ge "$expires_at" ]; then
+            restore_pw="${restore_password:-}"
+            if [ -n "$restore_pw" ]; then
+                if systemctl is-active filebrowser &>/dev/null; then
+                    systemctl stop filebrowser 2>/dev/null
+                    sleep 1
+                fi
+                /usr/local/bin/filebrowser users update admin \
+                    --database=/data/filebrowser.db \
+                    --password="$restore_pw" 2>/dev/null || true
+                systemctl start filebrowser 2>/dev/null || true
+                echo "[cleanup] admin 密码已恢复为随机长密码"
+            fi
+            rm -f "$marker"
+        fi
+    done
+fi
+
 exit 0

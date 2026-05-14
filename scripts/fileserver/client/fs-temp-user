@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# fs-temp-user — 创建临时 Filebrowser 用户（自动过期）
+#
+# 用法: fs-temp-user [ttl]
+#   ttl: 30m, 1h, 8h, 24h（默认 1h）
+#
+# 要求:
+#   - 本机已接入 Tailscale，能访问 fileserver 节点
+#   - SSH key 已添加到文件服务器（lzlu@fileserver）
+#
+# 原理: SSH 到文件服务器 → 创建只读用户 → 输出凭据
+#       cron 到期自动清理（由 fs-share-cleanup 处理）
+# 安全: 不依赖公网 IP，不留文件服务器密码在本地
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat <<EOF
+创建临时 Filebrowser 用户（自动过期）
+
+用法: fs-temp-user [ttl]
+
+参数:
+  ttl  有效期（可选，默认 1h）
+        格式: 30m, 2h, 8h, 24h
+
+示例:
+  fs-temp-user 30m       # 30 分钟有效
+  fs-temp-user 8h        # 8 小时有效
+  fs-temp-user           # 默认 1 小时
+
+要求: 本机已接入 Tailscale，能通过 SSH 访问 fileserver 节点
+EOF
+    exit 1
+}
+
+case "${1:-}" in
+    -h|--help) usage ;;
+esac
+
+# 默认值
+FS_HOST="${FS_HOST:-fileserver}"
+FS_SSH_USER="${FS_SSH_USER:-lzlu}"
+TTL="${1:-1h}"
+
+# 简单的 SSH 封装（port 22，不使用配置文件）
+_fs_ssh() {
+    ssh "${FS_SSH_USER}@${FS_HOST}" "$@"
+}
+
+echo "[fs] 连接文件服务器 (${FS_SSH_USER}@${FS_HOST})..." >&2
+echo "[fs] 创建临时用户 (有效期 ${TTL})..." >&2
+
+# SSH 执行服务器端脚本，创建临时用户
+output=$(_fs_ssh "sudo create-temp-user.sh ${TTL}" 2>&1) || {
+    echo "[fs] 错误: 创建临时用户失败" >&2
+    echo "$output" >&2
+    exit 1
+}
+
+# 提取并显示凭据
+echo "$output" | grep -E "(URL:|Username:|Password:|Expires:)"
+echo "  (提示: 登录页用户名已自动填入 admin)"

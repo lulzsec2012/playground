@@ -15,6 +15,7 @@ SHARES_CONF_DIR="/etc/nginx/shares.d"
 FILEBROWSER_USER="fileserver"
 SITE_CONF_NAME="fileserver"
 DEPLOY_STATE_DIR="/var/lib/fileserver/deploy-status"
+FS_CONF_DIR="/data/etc"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEMPLATE_FILE="$SCRIPT_DIR/filebrowser-site.conf.template"
@@ -22,6 +23,8 @@ HELPER_SRC="$SCRIPT_DIR/fs-share-helper.sh"
 HELPER_DST="/usr/local/bin/fs-share-helper"
 CLEANUP_SRC="$SCRIPT_DIR/fs-share-cleanup.sh"
 CLEANUP_DST="/usr/local/bin/fs-share-cleanup"
+TEMP_USER_SRC="$SCRIPT_DIR/create-temp-user.sh"
+TEMP_USER_DST="/usr/local/bin/create-temp-user.sh"
 
 # === 前提检查 ===
 
@@ -148,10 +151,12 @@ step_create_system_user() {
     # 创建存储目录
     sudo mkdir -p "$FILES_ROOT"
     sudo mkdir -p "$SHARE_DIR"
+    sudo mkdir -p "$FS_CONF_DIR"
 
     # 设置属主
     sudo chown -R "$FILEBROWSER_USER:$FILEBROWSER_USER" "$FILES_ROOT"
     echo "  目录 $FILES_ROOT 已就绪"
+    echo "  配置目录 $FS_CONF_DIR 已就绪"
 
     echo "done" | sudo tee "$marker" >/dev/null
 }
@@ -170,11 +175,11 @@ step_record_public_ip() {
     ip="$(curl -sf --max-time 5 http://100.100.100.200/latest/meta-data/eipv4 2>/dev/null || curl -sf --max-time 10 https://ifconfig.me 2>/dev/null || curl -sf --max-time 10 https://api.ipify.org 2>/dev/null || echo "")"
 
     if [ -n "$ip" ]; then
-        echo "$ip" | sudo tee "$FILES_ROOT/public-ip.txt" >/dev/null
+        echo "$ip" | sudo tee "$FS_CONF_DIR/public-ip" >/dev/null
         echo "  公网 IP: $ip"
     else
         echo "  ⚠️  无法获取公网 IP，后续分享功能可能受限"
-        echo "  可手动: curl ifconfig.me | sudo tee $FILES_ROOT/public-ip.txt"
+        echo "  可手动: curl ifconfig.me | sudo tee $FS_CONF_DIR/public-ip"
     fi
 
     echo "done" | sudo tee "$marker" >/dev/null
@@ -336,12 +341,12 @@ step_install_cleanup_cron() {
     fi
 
     echo ""
-    echo ">>> [Step 7/9] 安装分享清理脚本 + crontab"
+    echo ">>> [Step 7/9] 安装清理脚本 + crontab"
 
     if [ -f "$CLEANUP_SRC" ]; then
         sudo cp "$CLEANUP_SRC" "$CLEANUP_DST"
         sudo chmod +x "$CLEANUP_DST"
-        echo "  fs-share-cleanup.sh 已安装到 $CLEANUP_DST"
+        echo "  fs-share-cleanup.sh 已安装到 $CLEANUP_DST（清理过期分享 + 临时用户）"
 
         local cron_job="*/5 * * * * root $CLEANUP_DST >/dev/null 2>&1"
         if [ -f /etc/crontab ] && ! grep -qF "$CLEANUP_DST" /etc/crontab 2>/dev/null; then
@@ -355,6 +360,13 @@ step_install_cleanup_cron() {
         fi
     else
         echo "  ⚠️  未找到 $CLEANUP_SRC，跳过"
+    fi
+
+    # 安装临时用户创建脚本
+    if [ -f "$TEMP_USER_SRC" ]; then
+        sudo cp "$TEMP_USER_SRC" "$TEMP_USER_DST"
+        sudo chmod +x "$TEMP_USER_DST"
+        echo "  create-temp-user.sh 已安装到 $TEMP_USER_DST"
     fi
 
     echo "done" | sudo tee "$marker" >/dev/null
@@ -380,15 +392,13 @@ step_generate_nginx_site() {
     sudo cp "$TEMPLATE_FILE" "$site_file"
 
     # 如果有公网 IP，替换模板中的占位符
-    if [ -f "$FILES_ROOT/public-ip.txt" ]; then
+    if [ -f "$FS_CONF_DIR/public-ip" ]; then
         local public_ip
-        public_ip="$(cat "$FILES_ROOT/public-ip.txt")"
+        public_ip="$(cat "$FS_CONF_DIR/public-ip")"
         sudo sed -i "s/{{PUBLIC_IP}}/$public_ip/g" "$site_file" 2>/dev/null || true
     fi
 
     echo "  Nginx site 配置已生成: $site_file"
-
-    echo "done" | sudo tee "$marker" >/dev/null
 }
 
 step_enable_site() {
@@ -429,7 +439,7 @@ step_print_result() {
     echo "========================================"
 
     local public_ip=""
-    [ -f "$FILES_ROOT/public-ip.txt" ] && public_ip="$(cat "$FILES_ROOT/public-ip.txt")"
+    [ -f "$FS_CONF_DIR/public-ip" ] && public_ip="$(cat "$FS_CONF_DIR/public-ip")"
 
     if systemctl is-active tailscale &>/dev/null; then
         echo "  🌐 Tailscale:  http://fileserver:8080"
@@ -540,7 +550,7 @@ undo() {
                 ;;
             03)
                 echo "  删除公网 IP 记录…"
-                sudo rm -f "$FILES_ROOT/public-ip.txt"
+                sudo rm -f "$FS_CONF_DIR/public-ip"
                 ;;
             02)
                 echo "  删除系统用户和文件目录…"

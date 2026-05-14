@@ -19,6 +19,10 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 在登录页面预填用户名 "admin"（Vue SPA，用 MutationObserver 等动态输入框出现）
+        sub_filter '</head>' '<script>document.addEventListener("DOMContentLoaded",function(){new MutationObserver(function(){var u=document.querySelector("input[name=username]");if(u&&!u.value){u.value="admin"}}).observe(document.body,{childList:!0,subtree:!0})});</script></head>';
+        sub_filter_once on;
     }
 
     # 分享文件直链（由 fs-share 命令自动创建）

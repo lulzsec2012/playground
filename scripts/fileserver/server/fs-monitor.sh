@@ -23,7 +23,7 @@ set -euo pipefail
 FILES_ROOT="/data/files"
 SHARES_DIR="$FILES_ROOT/.shares"
 NGINX_SHARES_CONF="/etc/nginx/shares.d"
-PUBLIC_IP_FILE="$FILES_ROOT/public-ip.txt"
+PUBLIC_IP_FILE="/data/etc/public-ip"
 DISK_WARN=80
 DISK_ERR=95
 
