@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/fs-lib.sh"
+
+usage() {
+    cat <<EOF
+查看或编辑文件服务器配置
+
+用法: fs-config [选项]
+
+选项:
+  --edit      编辑配置文件（使用 \$EDITOR）
+  -h, --help  显示帮助信息
+
+示例:
+  fs-config        查看当前配置
+  fs-config --edit 编辑配置文件
+EOF
+    exit 1
+}
+
+_fs_load_config || usage
+
+case "${1:-}" in
+    --edit)
+        editor="${EDITOR:-vim}"
+        exec "$editor" "$SCRIPT_DIR/fileserver.conf"
+        ;;
+    -h|--help)
+        usage
+        ;;
+    "")
+        ;;
+    *)
+        usage
+        ;;
+esac
+
+# Mask password
+local_pass="****"
+[ -z "${FS_PASS:-}" ] && local_pass="(未设置)"
+
+# Handle optional values
+local_bwlimit="${FS_BWLIMIT:-}"
+[ -z "$local_bwlimit" ] && local_bwlimit="(未设置)"
+
+cfg_path="$SCRIPT_DIR/fileserver.conf"
+
+echo "[fs] 配置文件: $cfg_path"
+echo ""
+echo "当前配置:"
+printf "  %-12s = %s\n" "FS_HOST"     "${FS_HOST:-fileserver}"
+printf "  %-12s = %s\n" "FS_PORT"     "${FS_PORT:-8080}"
+printf "  %-12s = %s\n" "FS_USER"     "${FS_USER:-admin}"
+printf "  %-12s = %s\n" "FS_PASS"     "$local_pass"
+printf "  %-12s = %s\n" "FS_SSH_HOST" "${FS_SSH_HOST:-}"
+printf "  %-12s = %s\n" "FS_SSH_PORT" "${FS_SSH_PORT:-22}"
+printf "  %-12s = %s\n" "FS_SSH_USER" "${FS_SSH_USER:-lzlu}"
+printf "  %-12s = %s\n" "FS_MODE"     "${FS_MODE:-auto}"
+printf "  %-12s = %s\n" "FS_BWLIMIT"  "$local_bwlimit"
+
+exit 0

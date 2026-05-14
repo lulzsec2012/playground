@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/fs-lib.sh"
+
+usage() {
+    cat <<EOF
+上传文件或目录到文件服务器
+
+用法: fs-up <本地路径> [远程目录]
+
+参数:
+  src      本地文件或目录（必填）
+  dst_dir  远程目标目录（可选，默认 /）
+
+示例:
+  fs-up ./model.pt /experiments/
+  fs-up ./logs/
+EOF
+    exit 1
+}
+
+_fs_load_config || usage
+_fs_detect_mode || exit 1
+
+[ $# -lt 1 ] && usage
+
+_fs_remote_upload "$1" "${2:-/}"

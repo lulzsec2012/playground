@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/fs-lib.sh"
+
+usage() {
+    cat <<EOF
+移动或重命名文件服务器上的文件/目录
+
+用法: fs-mv <远程源路径> <远程目标路径>
+
+参数:
+  src  远程源路径（相对 /data/files/）
+  dst  远程目标路径（相对 /data/files/）
+
+注意: 两个参数均为服务器端路径，相对于 /data/files/
+
+示例:
+  fs-mv /experiments/model.pt /experiments/archive/model.pt
+  fs-mv /temp/data /data/archive/
+EOF
+    exit 1
+}
+
+_fs_load_config || usage
+_fs_detect_mode || exit 1
+
+[ $# -lt 2 ] && usage
+
+_fs_remote_move "$1" "$2"

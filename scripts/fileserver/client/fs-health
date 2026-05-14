@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/fs-lib.sh"
+
+usage() {
+    cat <<EOF
+检测文件服务器连接状态
+
+用法: fs-health
+
+示例:
+  fs-health
+EOF
+    exit 1
+}
+
+_fs_load_config || usage
+_fs_detect_mode || exit 1
+
+_fs_health_check

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/fs-lib.sh"
+
+usage() {
+    cat <<EOF
+列出文件服务器上的文件
+
+用法: fs-ls [远程目录]
+
+参数:
+  path  远程目录路径（可选，默认 /）
+
+示例:
+  fs-ls
+  fs-ls /experiments/
+EOF
+    exit 1
+}
+
+_fs_load_config || usage
+_fs_detect_mode || exit 1
+
+_fs_remote_list "${1:-/}"

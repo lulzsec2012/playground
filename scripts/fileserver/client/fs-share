@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/fs-lib.sh"
+
+usage() {
+    cat <<EOF
+创建文件分享链接
+
+用法: fs-share [-p] [--ttl <时长>] <远程路径>
+       fs-share --list
+       fs-share --delete <share-id>
+
+参数:
+  -p           启用密码保护
+  --ttl <时长>  分享过期时间，如 30m、2h、48h、7d
+  --list       列出所有分享
+  --delete     删除指定分享
+  path         远程文件或目录
+
+示例:
+  fs-share /experiments/model.pt
+  fs-share -p /experiments/report.pdf
+  fs-share --ttl 48h /experiments/model.pt
+  fs-share --ttl 7d -p /experiments/report.pdf
+  fs-share --list
+  fs-share --delete s1234567890
+EOF
+    exit 1
+}
+
+# === TTL 解析 ===
+_parse_ttl() {
+    local val="$1"
+    local num="${val%[smhd]}"
+    local unit="${val: -1}"
+    case "$unit" in
+        s) echo "$((num * 1))" ;;
+        m) echo "$((num * 60))" ;;
+        h) echo "$((num * 3600))" ;;
+        d) echo "$((num * 86400))" ;;
+        *) echo ""; return 1 ;;
+    esac
+}
+
+_fs_load_config || usage
+_fs_detect_mode || exit 1
+
+password=""
+ttl_seconds=""
+path=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --list)
+            _fs_remote_list_shares
+            exit 0
+            ;;
+        --delete)
+            [ $# -lt 2 ] && usage
+            _fs_remote_unshare "$2"
+            exit 0
+            ;;
+        -p)
+            password=$(openssl rand -base64 9 2>/dev/null || date +%s | md5sum | head -c 12)
+            shift
+            ;;
+        --ttl)
+            [ $# -lt 2 ] && usage
+            ttl_seconds=$(_parse_ttl "$2") || {
+                echo "[fs] 错误: 无效的 TTL 格式: $2 (示例: 30m, 2h, 48h, 7d)" >&2
+                exit 1
+            }
+            shift 2
+            ;;
+        -*)
+            echo "[fs] 未知选项: $1" >&2
+            usage
+            ;;
+        *)
+            [ -n "$path" ] && { echo "[fs] 错误: 只能指定一个路径" >&2; exit 1; }
+            path="$1"
+            shift
+            ;;
+    esac
+done
+
+[ -z "$path" ] && usage
+
+_fs_remote_share "$path" "$password" "$ttl_seconds"

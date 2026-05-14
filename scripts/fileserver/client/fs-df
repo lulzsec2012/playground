@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/fs-lib.sh"
+
+usage() {
+    cat <<EOF
+查看文件服务器磁盘使用情况
+
+用法: fs-df
+
+示例:
+  fs-df
+EOF
+    exit 1
+}
+
+_fs_load_config || usage
+_fs_detect_mode || exit 1
+
+_fs_remote_df

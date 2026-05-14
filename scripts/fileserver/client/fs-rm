@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/fs-lib.sh"
+
+usage() {
+    cat <<EOF
+从文件服务器删除文件或目录
+
+用法: fs-rm [-r] <远程路径>
+
+参数:
+  -r      递归删除目录及其内容
+  path    远程文件或目录路径（必填）
+
+示例:
+  fs-rm /experiments/old-model.pt
+  fs-rm -r /experiments/archive/
+EOF
+    exit 1
+}
+
+_fs_load_config || usage
+_fs_detect_mode || exit 1
+
+[ $# -lt 1 ] && usage
+
+recursive=false
+path=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -r|--recursive)
+            recursive=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        -*)
+            echo "[fs] 未知选项: $1" >&2
+            usage
+            ;;
+        *)
+            path="$1"
+            shift
+            ;;
+    esac
+done
+
+[ -z "$path" ] && usage
+
+_fs_remote_delete "$path" "$recursive"
