@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# pesudo — 安全的 sudo 替代命令
+# 通过微信 OTP 授权后自动执行 sudo，大模型看不到密码明文
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/pesudo-lib.sh"
+
+# ====== 使用方法 ======
+usage() {
+    cat >&2 <<EOF
+用法: pesudo <command> [args...]
+
+通过微信 OTP 授权后执行需要 sudo 权限的命令。
+授权码通过微信发送，密码全程不在终端或磁盘暴露。
+
+示例:
+  pesudo apt install nginx
+  pesudo systemctl restart docker
+  pesudo vim /etc/hosts
+
+环境变量:
+  PESUDO_TEST_MODE=1   从 stdin 读取 OTP（用于自动化测试）
+EOF
+    exit 1
+}
+
+[[ $# -eq 0 ]] && usage
+
+# ====== 前置检查 ======
+load_credentials
+
+# 发现授权服务器
+SERVER_URL=$(discover_server) || exit 1
+
+# 检查必要工具
+for cmd in curl python3 expect; do
+    command -v "$cmd" >/dev/null 2>&1 || die "需要 ${cmd} 命令，请先安装"
+done
+
+# ====== 步骤 1: 发起授权请求 ======
+info "🔐 正在请求 sudo 授权..."
+RESP=$(http_post_json "${SERVER_URL}/v1/auth/request" \
+    "{\"machine_id\": \"${MACHINE_ID}\", \"command\": \"$*\"}") || {
+    die "授权请求失败，无法连接服务器 ${SERVER_URL}"
+}
+
+REQUEST_ID=$(echo "$RESP" | python3 -c "
+import sys, json
+try:
+    print(json.load(sys.stdin).get('request_id', ''), end='')
+except: pass
+")
+
+if [[ -z "$REQUEST_ID" ]]; then
+    ERROR_MSG=$(echo "$RESP" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('detail', d.get('error', '未知错误')), end='')
+except: pass
+" 2>/dev/null)
+    die "授权请求被拒绝: ${ERROR_MSG:-请检查机器是否已注册}"
+fi
+
+# ====== 步骤 2: 等待用户输入 OTP ======
+info ""
+info "📱 已向微信发送授权请求"
+info "   命令: $*"
+info ""
+
+if [[ "${PESUDO_TEST_MODE:-0}" = "1" ]]; then
+    # 测试模式：从 stdin 读取 OTP
+    read -r OTP
+else
+    # 正常模式：不回显输入
+    read -s -p "  ⏳ 请输入微信中的 6 位授权码: " OTP
+    echo ""
+fi
+
+# ====== 步骤 3: 验证 OTP 并获取凭据 ======
+RESP=$(http_post_json "${SERVER_URL}/v1/auth/verify" \
+    "{\"machine_id\": \"${MACHINE_ID}\", \"request_id\": \"${REQUEST_ID}\", \"otp\": \"${OTP}\"}") || {
+    unset OTP
+    die "验证失败: 无法连接服务器"
+}
+unset OTP
+
+# 解析响应
+CIPHERTEXT=$(echo "$RESP" | python3 -c "
+import sys, json
+try:
+    c = json.load(sys.stdin).get('credential', {})
+    print(c.get('ciphertext', ''), end='')
+except: pass
+")
+
+SESSION_KEY=$(echo "$RESP" | python3 -c "
+import sys, json
+try:
+    c = json.load(sys.stdin).get('credential', {})
+    print(c.get('session_key', ''), end='')
+except: pass
+")
+
+EXPIRES_AT=$(echo "$RESP" | python3 -c "
+import sys, json
+try:
+    c = json.load(sys.stdin).get('credential', {})
+    print(c.get('expires_at', 0), end='')
+except: pass
+")
+
+if [[ -z "$CIPHERTEXT" || -z "$SESSION_KEY" ]]; then
+    ERROR_MSG=$(echo "$RESP" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('detail', d.get('error', '授权失败')), end='')
+except: pass
+" 2>/dev/null)
+    die "授权失败: ${ERROR_MSG}"
+fi
+
+# 检查过期
+NOW=$(date +%s)
+if [[ "$NOW" -gt "$EXPIRES_AT" ]]; then
+    die "凭据已过期，请重新请求授权"
+fi
+
+# ====== 步骤 4: 解密凭据 ======
+SUDO_PASS=$(decrypt_credential "$CIPHERTEXT" "$SESSION_KEY" "$REQUEST_ID") || {
+    die "凭据解密失败"
+}
+
+# 立即清除凭据（密码值保留在 SUDO_PASS 中）
+unset CIPHERTEXT SESSION_KEY EXPIRES_AT
+
+# ====== 步骤 5: 执行 sudo ======
+info ""
+ok "授权成功，正在执行命令..."
+expect_sudo "$SUDO_PASS" "$@"
+EXIT_CODE=$?
+
+# 清除密码
+unset SUDO_PASS
+
+exit $EXIT_CODE

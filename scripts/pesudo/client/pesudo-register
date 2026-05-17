@@ -1,0 +1,472 @@
+#!/usr/bin/env bash
+#
+# pesudo-register — 集中注册：从任意节点为任意节点注册
+#
+# 用法:
+#   pesudo-register                    # 注册本机
+#   pesudo-register user@host          # 注册远程机器
+#   pesudo-register --batch file.txt   # 批量注册
+#
+# 注册时需输入:
+#   1. 阿里云 ECS SSH 密码（验证管理员身份）
+#   2. 目标机器的 sudo 密码（仅键盘输入，不回显）
+#
+# 密码只在键盘输入瞬间存在，不在终端回显，大模型不可见。
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 源起公共库
+source "${SCRIPT_DIR}/pesudo-lib.sh"
+
+# SSH 端口（可通过 --ssh-port 设置）
+SSH_PORT=22
+
+# SSH 命令包装器，始终强制指定端口
+# 防止 ~/.ssh/config 中 Port 覆盖导致连接到错误机器
+ssh_cmd() {
+    ssh -p "$SSH_PORT" "$@"
+}
+
+# ====== 注册核心函数 ======
+
+# 注册机器到授权服务器
+# 参数: <user> <hostname> <tailscale_ip> <sudo_pass> <aliyun_token> [ssh_port]
+# 输出: MACHINE_ID (export)
+register_machine() {
+    local user="$1"
+    local host="$2"
+    local ts_ip="$3"
+    local sudo_pass="$4"
+    local aliyun_token="$5"
+    local ssh_port="${6:-22}"
+    local server_url="${7:-}"
+
+    if [[ -z "$server_url" ]]; then
+        server_url=$(discover_server) || die "无法找到授权服务器"
+    fi
+
+    # 生成 machine_id: hostname_user_port 的 SHA256 前缀
+    # 不同 SSH 端口视作不同机器（如 Docker 容器端口映射）
+    MACHINE_ID="m_$(echo "${host}_${user}_${ssh_port}" | sha256sum | cut -c1-16)"
+
+    local resp
+    resp=$(http_post_json "${server_url}/v1/register" "{
+        \"machine_id\": \"${MACHINE_ID}\",
+        \"hostname\": \"${host}\",
+        \"user\": \"${user}\",
+        \"tailscale_ip\": \"${ts_ip}\",
+        \"encrypted_pass\": \"${sudo_pass}\",
+        \"aliyun_auth_token\": \"${aliyun_token}\"
+    }") || {
+        die "注册失败: 无法连接授权服务器"
+    }
+
+    local status
+    status=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    print(json.load(sys.stdin).get('status', 'error'))
+except Exception:
+    print('parse_error')
+" 2>/dev/null) || status="parse_error"
+
+    if [[ "$status" != "ok" ]]; then
+        local err_msg
+        err_msg=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    print(json.load(sys.stdin).get('error', '未知错误'))
+except Exception:
+    print('响应解析失败')
+" 2>/dev/null) || err_msg="未知错误"
+        die "注册失败: ${err_msg}"
+    fi
+
+    ok "机器已注册: ${host} (ID: ${MACHINE_ID})"
+    export MACHINE_ID
+}
+
+# ====== 本地注册 ======
+
+register_local() {
+    local user="${USER:-$(whoami)}"
+    local host
+    host=$(hostname 2>/dev/null || echo "localhost")
+
+    section "注册本机: ${user}@${host}"
+
+    # 步骤 1: 先确认授权服务器可达（再让用户输密码）
+    echo ""
+    echo "  步骤 1/4: 连接授权服务器..."
+    SERVER_URL=$(discover_server) || {
+        echo ""
+        warn "授权服务器不可达"
+        echo ""
+        echo "  ─────────────────────────────────────"
+        read -r -p "  尝试自动修复（SSH 到 ECS 重启服务）? [Y/n] " do_recover
+        if [[ -z "$do_recover" || "$do_recover" =~ ^[Yy] ]]; then
+            echo ""
+            SERVER_URL=$(recover_server) || {
+                die "自动修复失败，请手动处理:
+
+  1. 检查 ECS 服务:  ssh user@host 'systemctl --user status pesudo-server'
+  2. 建立 SSH 隧道: pesudo.sh tunnel
+  3. 或手动设置:  echo 'SERVER_URL=http://host:8643' >> ~/.pesudo/config"
+            }
+        else
+            die "已取消
+
+  可手动修复:
+  1. 检查 ECS 服务:  ssh user@host 'systemctl --user status pesudo-server'
+  2. 建立 SSH 隧道: pesudo.sh tunnel"
+        fi
+    }
+    ok "授权服务器可用: ${SERVER_URL}"
+
+    # 步骤 2: 验证管理员身份
+    echo ""
+    echo "  步骤 2/4: 验证管理员身份"
+    local ALIYUN_TOKEN="" ALIYUN_PASS="" attempt=1
+    while [[ $attempt -le 3 ]]; do
+        read -s -p "  阿里云 ECS SSH 密码 (尝试 ${attempt}/3): " ALIYUN_PASS
+        echo ""
+        ALIYUN_TOKEN=$(echo -n "${ALIYUN_PASS}" | sha256sum | cut -d' ' -f1)
+        unset ALIYUN_PASS
+        [[ -n "$ALIYUN_TOKEN" ]] && break
+        warn "密码不能为空"
+        ((attempt++))
+    done
+    [[ -z "$ALIYUN_TOKEN" ]] && die "密码输入超过 3 次"
+
+    # 步骤 3: 录入 sudo 密码
+    echo ""
+    echo "  步骤 3/4: 录入本机 sudo 密码"
+    echo "  此密码仅用于授权后自动执行 sudo，不会被大模型看到"
+    local SUDO_PASS="" attempt=1
+    while [[ $attempt -le 3 ]]; do
+        read -s -p "  本机 sudo 密码 (尝试 ${attempt}/3): " SUDO_PASS
+        echo ""
+        [[ -n "$SUDO_PASS" ]] && break
+        warn "密码不能为空"
+        ((attempt++))
+    done
+    [[ -z "$SUDO_PASS" ]] && die "密码输入超过 3 次"
+
+    # 步骤 4: 注册到服务器
+    echo ""
+    echo "  步骤 4/4: 注册到授权服务器..."
+    local TS_IP
+    TS_IP=$(tailscale ip -4 2>/dev/null || echo "")
+    register_machine "$user" "$host" "$TS_IP" "$SUDO_PASS" "$ALIYUN_TOKEN" "$SSH_PORT" "$SERVER_URL"
+    unset SUDO_PASS ALIYUN_TOKEN
+
+    # 保存本地凭据
+    save_local_credentials "$MACHINE_ID" "$host" "$SSH_PORT"
+
+    # 自动安装 sudo 别名
+    echo ""
+    echo "  安装 sudo → pesudo 别名..."
+    local alias_script
+    alias_script="$(cd "$SCRIPT_DIR/.." && pwd)/register.sh"
+    if [[ -f "$alias_script" ]]; then
+        bash "$alias_script"
+        echo ""
+        warn "执行以下命令使别名立即生效:"
+        echo "  source ${HOME}/.zshrc"
+    fi
+}
+
+# ====== 远程注册 ======
+
+register_remote() {
+    local target="$1"
+    local user="${target%%@*}"
+    local host="${target#*@}"
+
+    if [[ "$user" = "$target" ]]; then
+        # 没有 @，user@host 格式不完整；用当前用户
+        user="${USER:-$(whoami)}"
+    fi
+
+    section "注册远程机器: ${user}@${host}"
+
+    # 步骤 1: 先确认授权服务器可达（再让用户输密码）
+    echo ""
+    echo "  步骤 1/5: 连接授权服务器..."
+    SERVER_URL=$(discover_server) || {
+        echo ""
+        warn "授权服务器不可达"
+        echo ""
+        echo "  ─────────────────────────────────────"
+        read -r -p "  尝试自动修复（SSH 到 ECS 重启服务）? [Y/n] " do_recover
+        if [[ -z "$do_recover" || "$do_recover" =~ ^[Yy] ]]; then
+            echo ""
+            SERVER_URL=$(recover_server) || {
+                die "自动修复失败，请手动处理:
+
+  1. 检查 ECS 服务:  ssh user@host 'systemctl --user status pesudo-server'
+  2. 建立 SSH 隧道: pesudo.sh tunnel"
+            }
+        else
+            die "已取消"
+        fi
+    }
+    ok "授权服务器可用: ${SERVER_URL}"
+
+    # 步骤 2: 验证管理员身份
+    echo ""
+    echo "  步骤 2/5: 验证管理员身份"
+    local ALIYUN_TOKEN="" ALIYUN_PASS="" attempt=1
+    while [[ $attempt -le 3 ]]; do
+        read -s -p "  阿里云 ECS SSH 密码 (尝试 ${attempt}/3): " ALIYUN_PASS
+        echo ""
+        ALIYUN_TOKEN=$(echo -n "${ALIYUN_PASS}" | sha256sum | cut -d' ' -f1)
+        unset ALIYUN_PASS
+        [[ -n "$ALIYUN_TOKEN" ]] && break
+        warn "密码不能为空"
+        ((attempt++))
+    done
+    [[ -z "$ALIYUN_TOKEN" ]] && die "密码输入超过 3 次"
+
+    # 步骤 3: 验证目标机器可达
+    echo ""
+    echo "  步骤 3/5: 验证目标机器可达..."
+    if ! ssh_cmd "${user}@${host}" "echo ok" 2>/dev/null; then
+        die "无法连接 ${user}@${host}（请确认 Tailscale SSH 已启用）"
+    fi
+    ok "目标机器可达: ${host}"
+
+    # 步骤 4: 录入并验证 sudo 密码（最多重试 3 次）
+    echo ""
+    echo "  步骤 4/5: 录入目标机器 sudo 密码"
+    local SUDO_PASS="" attempt=1
+    while [[ $attempt -le 3 ]]; do
+        read -s -p "  ${host} 的 sudo 密码 (尝试 ${attempt}/3): " SUDO_PASS
+        echo ""
+        [[ -z "$SUDO_PASS" ]] && { warn "密码不能为空"; ((attempt++)); continue; }
+
+        echo "正在验证 sudo 密码..."
+        if echo "${SUDO_PASS}" | ssh_cmd "${user}@${host}" \
+            "sudo -S whoami" 2>/dev/null | grep -q "^root$"; then
+            ok "sudo 密码验证通过"
+            break
+        fi
+
+        warn "sudo 密码错误，请重试"
+        unset SUDO_PASS
+        ((attempt++))
+    done
+
+    if [[ -z "$SUDO_PASS" ]]; then
+        die "sudo 密码验证失败（已重试 3 次，请确认密码正确且有 sudo 权限）"
+    fi
+
+    # 获取目标机器的 Tailscale IP
+    local TS_IP
+        TS_IP=$(ssh_cmd "${user}@${host}" "tailscale ip -4" 2>/dev/null || echo "")
+
+    # 步骤 5: 注册到服务器
+    echo ""
+    echo "  步骤 5/5: 注册到授权服务器..."
+    register_machine "$user" "$host" "$TS_IP" "$SUDO_PASS" "$ALIYUN_TOKEN" "$SSH_PORT" "$SERVER_URL"
+    unset SUDO_PASS ALIYUN_TOKEN
+
+    # 自动在目标机器创建凭据
+    setup_remote_client "${user}" "${host}" "${MACHINE_ID}" "${SSH_PORT}"
+
+    echo ""
+    ok "注册完成！${host} 现在可以使用 pesudo 命令了"
+
+    # 自动安装远程 sudo 别名
+    echo ""
+    echo "  ─────────────────────────────────────"
+    echo "  正在 ${host} 上安装 sudo → pesudo 别名..."
+    ssh_cmd "${user}@${host}" '
+        marker_start="# >>> pesudo >>>"
+        marker_end="# <<< pesudo <<<"
+        if grep -qF "$marker_start" ~/.bashrc 2>/dev/null; then
+            echo "✅ 别名已存在"
+        else
+            printf "\n%s\n%s\n%s\n" \
+                "$marker_start" \
+                "alias sudo=pesudo" \
+                "$marker_end" >> ~/.bashrc
+            echo "✅ 别名已安装"
+            echo "⚠️  执行 source ~/.bashrc 使生效"
+        fi
+    ' 2>&1
+}
+
+# ====== 批量注册 ======
+
+register_batch() {
+    local batch_file="$1"
+
+    if [[ ! -f "$batch_file" ]]; then
+        die "批量注册文件不存在: ${batch_file}"
+    fi
+
+    section "批量注册: ${batch_file}"
+
+    # 一次性验证管理员身份
+    echo ""
+    read -s -p "阿里云 ECS SSH 密码: " ALIYUN_PASS
+    echo ""
+    local ALIYUN_TOKEN
+    ALIYUN_TOKEN=$(echo -n "${ALIYUN_PASS}" | sha256sum | cut -d' ' -f1)
+    unset ALIYUN_PASS
+
+    local line_num=0
+    while IFS= read -r line; do
+        line_num=$((line_num + 1))
+        # 跳过空行和注释
+        line="${line%%#*}"
+        line="${line## }"
+        line="${line%% }"
+        [[ -z "$line" ]] && continue
+
+        echo ""
+        info "[${line_num}] 注册: ${line}"
+
+        # 此目标的 sudo 密码
+        read -s -p "  ${line} 的 sudo 密码: " SUDO_PASS
+        echo ""
+
+        local user="${line%%@*}"
+        local host="${line#*@}"
+        if [[ "$user" = "$line" ]]; then
+            warn "格式无效，跳过: ${line}（应为 user@host）"
+            continue
+        fi
+
+        # 验证可达性
+        if ! ssh_cmd "${user}@${host}" "echo ok" 2>/dev/null; then
+            warn "无法连接 ${user}@${host}，跳过"
+            unset SUDO_PASS
+            continue
+        fi
+
+        # 验证 sudo
+        if ! echo "${SUDO_PASS}" | ssh_cmd "${user}@${host}" \
+            "sudo -S whoami" 2>/dev/null | grep -q "^root$"; then
+            warn "sudo 密码验证失败，跳过: ${line}"
+            unset SUDO_PASS
+            continue
+        fi
+
+        local TS_IP
+    TS_IP=$(ssh_cmd "${user}@${host}" "tailscale ip -4" 2>/dev/null || echo "")
+        register_machine "$user" "$host" "$TS_IP" "$SUDO_PASS" "$ALIYUN_TOKEN" "$SSH_PORT"
+        unset SUDO_PASS
+
+        echo ""
+    done < "$batch_file"
+
+    echo ""
+    ok "批量注册完成"
+}
+
+# ====== 客户端配置辅助 ======
+
+# 在目标机器上创建 ~/.pesudo/ 配置
+setup_remote_client() {
+    local user="$1"
+    local host="$2"
+    local machine_id="$3"
+    local ssh_port="${4:-22}"
+
+    local server_url
+    server_url=$(discover_server) || return 1
+
+    echo "正在 ${host} 上创建 ~/.pesudo/config..."
+    ssh_cmd "${user}@${host}" "
+        mkdir -p ~/.pesudo
+        cat > ~/.pesudo/config << 'PESUDO_EOF'
+# Pesudo 客户端配置
+# 自动发现授权服务器
+DISCOVERY_MODE=auto
+PESUDO_EOF
+
+        cat > ~/.pesudo/credentials << PESUDO_CRED_EOF
+machine_id=${machine_id}
+hostname=${host}
+ssh_port=${ssh_port}
+PESUDO_CRED_EOF
+        chmod 600 ~/.pesudo/credentials
+        chmod 600 ~/.pesudo/config
+    " 2>/dev/null && ok "已创建远程配置" || warn "远程配置创建失败（可手动创建）"
+}
+
+# ====== 帮助 ======
+
+show_usage() {
+    cat <<'EOF'
+用法: pesudo-register [user@host] [选项]
+
+集中注册机器到授权服务器。可从任意 Tailscale 节点为任意节点注册。
+
+参数:
+  user@host              目标机器（省略 user 时使用当前用户）
+                          支持 Tailscale hostname 或 IP
+  --ssh-port, -p <port>  指定 SSH 端口（默认 22）
+  --batch, -b <file>     批量注册（每行一个 user@host）
+  --help, -h             显示此帮助
+
+示例:
+  pesudo-register                        注册本机
+  pesudo-register user@dev-box-2         注册远程机器（SSH 默认端口 22）
+  pesudo-register user@dev-box-2 -p 2222     指定 SSH 端口
+  pesudo-register user@100.65.32.18      通过 IP 注册
+  pesudo-register --batch machines.txt   批量注册
+
+批量文件格式 (每行一条，支持 # 注释):
+  user@dev-box-2
+  # 这是注释
+  user@worker-1
+EOF
+}
+
+# ====== 入口 ======
+
+main() {
+    local target=""
+    local batch_file=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ssh-port|-p)
+                shift
+                SSH_PORT="$1"
+                ;;
+            --batch|-b)
+                shift
+                batch_file="$1"
+                ;;
+            --help|-h)
+                show_usage
+                exit 0
+                ;;
+            -*)
+                echo "未知选项: $1" >&2
+                show_usage >&2
+                exit 1
+                ;;
+            *)
+                target="$1"
+                ;;
+        esac
+        shift
+    done
+
+    if [[ -n "$batch_file" ]]; then
+        register_batch "$batch_file"
+    elif [[ -n "$target" ]]; then
+        register_remote "$target"
+    else
+        register_local
+    fi
+}
+
+main "$@"

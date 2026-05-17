@@ -1,0 +1,17 @@
+[Unit]
+Description=Pesudo Auth Server
+Documentation=https://github.com/oh-my-openode/pesudo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/pesudo/venv/bin/python -m server.server
+WorkingDirectory=/opt/pesudo
+EnvironmentFile=/opt/pesudo/.env
+Environment=PATH=/opt/pesudo/venv/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
