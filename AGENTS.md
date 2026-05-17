@@ -39,6 +39,24 @@ cd /workspace && git clone playground playground-refactor
 # work in /tmp/playground-refactor, replace /workspace/playground when ready
 ```
 
+## Script Registration
+
+Each `scripts/*/` directory may contain a `register.sh` that registers tools
+(PATH/alias/source) into the shell environment. The convention is:
+
+```bash
+bash scripts/install.sh              # 全量注册
+bash scripts/pesudo/register.sh      # 单目录注册
+bash scripts/register.sh --print     # 预览注册内容
+```
+
+- Each `register.sh` is **standalone** (detects rc, no shared library)
+- Registration files are written to `~/.config/playground/registrations.d/*.sh`
+- Your rc file sources the entire directory (one line, idempotent)
+- `install.sh` orchestrates all `register.sh` in one pass
+
+This replaces the old `set_alias.sh` / `install-path.sh` convention.
+
 ## Users & Groups
 
 - Host/container UID: 6032, GID: 5005 (GroupIP)
