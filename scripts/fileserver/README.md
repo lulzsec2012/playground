@@ -34,7 +34,7 @@ scripts/fileserver/
 │   ├── fs-config                    # 配置查看/编辑
 │   ├── fs-temp-user                 # 创建临时用户（Tailscale SSH）
 │   ├── fs-lib.sh                    # 公共函数库
-│   └── install-path.sh              # 注入 PATH 到 shell 配置
+│   └── register.sh                  # 注入 PATH 到 shell 配置
 │
 └── README.md                        # ← 本文件
 ```
@@ -128,7 +128,7 @@ cp fileserver.conf.TEMPLATE fileserver.conf
 #   - FS_SSH_HOST / FS_SSH_PORT / FS_SSH_USER  (SSH 连接信息)
 
 # 注入 PATH（只需执行一次）
-bash install-path.sh
+bash register.sh
 
 # 重新加载 shell 配置
 source ~/.zshrc   # 或 source ~/.bashrc

@@ -459,7 +459,7 @@ step_print_result() {
     echo "  cd /path/to/scripts/fileserver/client/"
     echo "  cp fileserver.conf.TEMPLATE fileserver.conf"
     echo "  # 编辑 fileserver.conf 后执行:"
-    echo "  bash install-path.sh && source ~/.zshrc"
+    echo "  cd client && bash register.sh && source ~/.zshrc"
     echo "========================================"
 }
 
