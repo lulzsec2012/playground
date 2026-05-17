@@ -1,140 +1,230 @@
 #!/usr/bin/env bash
 set -e
 
-# ============================================
-# OpenCode + 插件安装脚本
-# 在开发容器内执行: bash scripts/opencode/oc-install.sh
-# ============================================
-
 echo "========================================"
 echo "  OpenCode Environment Setup"
 echo "========================================"
 
-# ---------- 1. 安装 opencode CLI（官方安装方式，无需 sudo）----------
+# ---------- helpers ----------
+
+# npm 包版本检测：未安装则安装，已安装则对比 registry 版本决定升级/跳过
+npm_check_upgrade() {
+  local pkg="$1"
+  local label="${2:-$pkg}"
+  local installed
+
+  installed=$(npm ls -g --depth=0 "$pkg" 2>&1 | grep -Eo "@[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?" | head -1 | tr -d '@')
+  if [ -z "$installed" ]; then
+    echo "  $label 未安装，正在安装..."
+    npm_install_or_sudo "$pkg" || { echo "  $label 安装失败" >&2; return 1; }
+    return
+  fi
+
+  local latest
+  latest=$(npm view "$pkg" version 2>/dev/null || echo "")
+  if [ -z "$latest" ]; then
+    echo "  $label $installed（无法获取最新版本）"
+    return
+  fi
+
+  if [ "$installed" = "$latest" ]; then
+    echo "  $label $installed（已是最新），跳过"
+  else
+    echo "  $label: $installed -> $latest，升级中..."
+    npm_install_or_sudo "$pkg" || { echo "  $label 升级失败" >&2; return 1; }
+  fi
+}
+
+npm_install_or_sudo() {
+  local pkg="$1"
+  if npm install -g "$pkg" 2>/dev/null; then
+    return 0
+  fi
+  echo "  /usr/local 无写入权限，使用 sudo 安装..."
+  sudo npm install -g "$pkg"
+}
+
+ver_gt() {
+  [ "$(printf '%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ] && [ "$1" != "$2" ]
+}
+
+# ---------- 1. opencode CLI ----------
 echo ""
 echo "[1/7] Installing opencode CLI..."
+npm_install_opencode() {
+  npm_install_or_sudo "opencode-ai"
+}
+
 if command -v opencode &>/dev/null; then
-    echo "  opencode already installed: $(opencode --version)"
-else
-    echo "  通过官方脚本安装到 \$HOME/.opencode/bin/ ..."
-    if curl -fsSL https://opencode.ai/install | bash; then
-        # 官方脚本会修改 PATH，立即加载以便后续步骤使用
-        export PATH="$HOME/.opencode/bin:$PATH"
-        echo "  opencode installed: $(opencode --version)"
+  inst_ver=$(opencode --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?' | head -1)
+  if [ -z "$inst_ver" ]; then
+    echo "  opencode 已安装（版本号未识别）"
+  else
+    latest_ver=$(npm view opencode-ai version 2>/dev/null || echo "")
+    if [ -z "$latest_ver" ]; then
+      echo "  opencode $inst_ver（无法获取最新版本）"
+    elif [ "$inst_ver" = "$latest_ver" ]; then
+      echo "  opencode $inst_ver（已是最新），跳过"
+    elif ver_gt "$latest_ver" "$inst_ver"; then
+      echo "  opencode: $inst_ver -> $latest_ver，升级中..."
+      npm_install_opencode
+      echo "  opencode 已升级: $(opencode --version)"
     else
-        echo "  ⚠️  官方安装失败，降级到 npm..."
-        if command -v npm &>/dev/null; then
-            npm install -g opencode
-            echo "  opencode installed: $(opencode --version)"
-        else
-            echo "  ❌ npm 也不可用，请手动安装 opencode" >&2
-            exit 1
-        fi
+      echo "  opencode $inst_ver（已是最新），跳过"
     fi
+  fi
+else
+  echo "  通过 npm 安装 opencode-ai..."
+  if command -v npm &>/dev/null; then
+    npm_install_opencode
+    echo "  opencode installed: $(opencode --version)"
+  else
+    echo "  尝试官方脚本安装..."
+    if curl -fsSL --connect-timeout 5 --max-time 15 https://opencode.ai/install | bash; then
+      export PATH="$HOME/.opencode/bin:$PATH"
+      echo "  opencode installed: $(opencode --version)"
+    else
+      echo "  npm 和官方脚本均不可用，请手动安装 opencode" >&2
+      exit 1
+    fi
+  fi
 fi
 
-# ---------- 2. 安装 bun ----------
+# ---------- 2. bun ----------
 echo ""
 echo "[2/7] Installing bun..."
+_has_bun=false
 if command -v bun &>/dev/null; then
-    echo "  bun already installed: $(bun --version)"
-else
-    curl -fsSL https://bun.sh/install | bash
-    export PATH="$HOME/.bun/bin:$PATH"
-    echo "  bun installed: $(bun --version)"
+  _has_bun=true
+elif [ -f "$HOME/.bun/bin/bun" ]; then
+  export PATH="$HOME/.bun/bin:$PATH"
+  _has_bun=true
 fi
 
-# ---------- 3. 安装 oh-my-opencode ----------
+if $_has_bun; then
+  inst_ver=$(bun --version)
+  echo "  bun $inst_ver，检测升级..."
+  _old_ver="$inst_ver"
+  bun upgrade 2>/dev/null || echo "  (bun upgrade 不可用，跳过)"
+  _new_ver=$(bun --version)
+  if [ "$_old_ver" != "$_new_ver" ]; then
+    echo "  bun 已升级: $_old_ver -> $_new_ver"
+  else
+    echo "  bun $inst_ver（已是最新），跳过"
+  fi
+else
+  echo "  Installing bun..."
+  curl -fsSL https://bun.sh/install | bash
+  export PATH="$HOME/.bun/bin:$PATH"
+  echo "  bun installed: $(bun --version)"
+fi
+
+# ---------- 3. oh-my-opencode ----------
 echo ""
 echo "[3/7] Installing oh-my-opencode plugin..."
-if [ -d "$HOME/.config/opencode/plugins/oh-my-opencode" ] || npm ls -g oh-my-opencode &>/dev/null; then
-    echo "  oh-my-opencode already installed"
-else
-    npm install -g oh-my-opencode
-    echo "  oh-my-opencode installed"
-    echo "  配置指南: https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/refs/heads/master/docs/guide/installation.md"
-fi
+npm_check_upgrade "oh-my-opencode"
+echo "  配置指南: https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/refs/heads/master/docs/guide/installation.md"
 
-# ---------- 4. 安装 openspec ----------
+# ---------- 4. openspec ----------
 echo ""
 echo "[4/7] Installing openspec..."
-if command -v openspec &>/dev/null; then
-    echo "  openspec already installed: $(openspec --version 2>/dev/null || echo 'ok')"
-else
-    npm install -g @fission-ai/openspec@latest
-    echo "  openspec installed"
-    echo "  在项目目录执行 'openspec init' 初始化"
-fi
+npm_check_upgrade "@fission-ai/openspec" "openspec"
+echo "  在项目目录执行 'openspec init' 初始化"
 
-# ---------- 5. 安装 superpowers（14 个核心技能）----------
+# 清理 npx 输出中的 ANSI 控制字符和进度条
+clean_npx() {
+  sed -u 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b\][0-9;]*[^\x1b]*\x1b\\//g; s/\r//g' 2>/dev/null || cat
+}
+
+skill_dir() {
+  local d="$HOME/.agents/skills/$1"
+  [ -d "$d" ] && echo "$d" && return 0
+  d="$HOME/.opencode/skills/$1"
+  [ -d "$d" ] && echo "$d" && return 0
+  return 1
+}
+
+# ---------- 5. superpowers ----------
 echo ""
 echo "[5/7] Installing superpowers skills..."
-if [ -d "$HOME/.opencode/skills/obra/superpowers" ]; then
-    echo "  superpowers already installed"
+if skill_dir "superpowers" >/dev/null; then
+  echo "  superpowers 已安装，检查更新..."
+  npx --yes skills add obra/superpowers 2>&1 | clean_npx
 else
-    npx skills add obra/superpowers -y
-    echo "  superpowers installed"
+  npx --yes skills add obra/superpowers
+  echo "  superpowers installed"
 fi
 
-# ---------- 6. 安装 planning-with-files ----------
+# ---------- 6. planning-with-files ----------
 echo ""
 echo "[6/7] Installing planning-with-files..."
-if [ -d "$HOME/.opencode/skills/OthmanAdi/planning-with-files" ]; then
-    echo "  planning-with-files already installed"
+if skill_dir "planning-with-files" >/dev/null; then
+  echo "  planning-with-files 已安装，检查更新..."
+  npx --yes skills add OthmanAdi/planning-with-files 2>&1 | clean_npx
 else
-    npx skills add OthmanAdi/planning-with-files -y
-    echo "  planning-with-files installed"
+  npx --yes skills add OthmanAdi/planning-with-files
+  echo "  planning-with-files installed"
 fi
 
-# ---------- 7. 安装 opencode-conversation-analysis ----------
+# ---------- 7. conversation-analysis ----------
 echo ""
 echo "[7/7] Installing opencode-conversation-analysis..."
-if [ -d "$HOME/.opencode/skills/connorads/opencode-conversation-analysis" ]; then
-    echo "  opencode-conversation-analysis already installed"
+if skill_dir "opencode-conversation-analysis" >/dev/null; then
+  echo "  opencode-conversation-analysis 已安装，检查更新..."
+  npx --yes skills add connorads/dotfiles@opencode-conversation-analysis -y -g 2>&1 | clean_npx || echo "  跳过"
 else
-    npx skills add https://github.com/connorads/opencode-conversation-analysis
-    echo "  opencode-conversation-analysis installed"
+  npx --yes skills add connorads/dotfiles@opencode-conversation-analysis -y -g || echo "  ⚠️ 跳过"
 fi
 
-# ---------- 额外工具 ----------
+# ---------- extra tools ----------
 echo ""
 echo "--- Optional tools ---"
 
-# opencode-agent-optimizer
-if command -v opencode-agent-optimizer &>/dev/null; then
-    echo "  opencode-agent-optimizer already installed"
-else
-    echo "  Installing opencode-agent-optimizer..."
-    npm install -g opencode-agent-optimizer
-    echo "  opencode-agent-optimizer installed"
-    echo "  用法: opencode-agent-optimizer summary"
-    echo "        opencode-agent-optimizer suggest --all"
-    echo "        opencode-agent-optimizer install"
-fi
+echo ""
+echo "opencode-agent-optimizer:"
+npm_check_upgrade "opencode-agent-optimizer"
+echo "  用法: opencode-agent-optimizer summary"
+echo "        opencode-agent-optimizer suggest --all"
+echo "        opencode-agent-optimizer install"
 
-# opencode-analytics
-if command -v opencode-analytics &>/dev/null; then
-    echo "  opencode-analytics already installed"
-else
-    echo "  Installing opencode-analytics..."
-    npm install -g opencode-analytics
-    echo "  opencode-analytics installed"
-    echo "  启动: opencode-analytics --port 3456 --no-open &"
-    echo "  访问: http://<容器IP>:3456"
-fi
+echo ""
+echo "opencode-analytics:"
+npm_check_upgrade "opencode-analytics"
+echo "  注意: opencode-analytics v0.1.0 为库文件，无 CLI 命令"
+echo "  用法: 在项目中 import 使用"
 
-# opencode-multi（需要 Rust toolchain）
-if command -v opencode-multi &>/dev/null; then
-    echo "  opencode-multi already installed: $(opencode-multi --version 2>/dev/null || echo 'ok')"
+echo ""
+echo "opencode-multi:"
+ensure_rust() {
+  if command -v cargo &>/dev/null && [ "$(cargo --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+' | head -1)" = "1.8" ]; then
+    echo "  Rust $(cargo --version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+') OK"
+    return 0
+  fi
+  if command -v rustup &>/dev/null; then
+    echo "  升级 Rust..."
+    rustup default stable 2>&1 | tail -1
+    . "$HOME/.cargo/env"
+    return 0
+  fi
+  echo "  安装 rustup..."
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y 2>&1 | tail -1
+  . "$HOME/.cargo/env"
+}
+ensure_rust
+if command -v cargo &>/dev/null; then
+  local_ver=$(cargo install --list 2>/dev/null | grep -E '^opencode-multi v' | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  latest_ver=$(cargo search opencode-multi 2>/dev/null | grep -Eo '^opencode-multi[^#]*#([0-9]+\.[0-9]+\.[0-9]+)' | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  if [ -n "$local_ver" ] && [ "$local_ver" = "$latest_ver" ]; then
+    echo "  opencode-multi $local_ver（已是最新），跳过"
+  elif [ -n "$local_ver" ]; then
+    echo "  opencode-multi: $local_ver -> $latest_ver，升级中..."
+    cargo install opencode-multi --force 2>&1 | tail -1
+  else
+    echo "  安装 opencode-multi..."
+    cargo install opencode-multi 2>&1 | tail -1
+  fi
 else
-    if command -v cargo &>/dev/null; then
-        echo "  Installing opencode-multi (cargo install)..."
-        cargo install opencode-multi
-        echo "  opencode-multi installed"
-    else
-        echo "  ⚠️  cargo 未安装，跳过 opencode-multi"
-        echo "    安装 Rust: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
-    fi
+  echo "  cargo 不可用，跳过 opencode-multi"
 fi
 
 echo ""

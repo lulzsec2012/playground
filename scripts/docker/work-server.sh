@@ -27,6 +27,7 @@ declare -A INSTANCES=(
     [default]="2222:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
     [test-v1]="2223:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
     [test-v2]="2224:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
+    [dev]="2225:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
 )
 
 INSTANCES_DIR="$HOME/.docker/instances"
@@ -95,7 +96,12 @@ work-server() {
         fi
     done
 
-    docker run -t --privileged --gpus all \
+    declare -a gpu_opts=()
+    if docker info 2>/dev/null | grep -qi "Runtimes.*nvidia"; then
+        gpu_opts=(--gpus all)
+    fi
+
+    docker run -t --privileged "${gpu_opts[@]}" \
         --log-driver=none \
         --hostname="D$(hostname)" \
         --name "$name" \
