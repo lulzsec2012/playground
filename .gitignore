@@ -11,5 +11,8 @@ scripts/docker/home-config/ssh/authorized_keys
 # Cloned repos (legacy)
 luluman_docker/
 
+# Sisyphus working directory
+.sisyphus
+
 # macOS
 .DS_Store

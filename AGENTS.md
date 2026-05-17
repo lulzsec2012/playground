@@ -8,6 +8,26 @@
 | Host | `ssh lulizhi@100.117.18.87` (or `ssh lulizhi@10.10.18.210`) |
 | ECS | `ssh lzlu@39.102.52.1` |
 
+## Project Structure
+
+All projects/tools live under `scripts/` as independent subdirectories.
+There is NOT a `projects/`, `tools/`, or `apps/` directory — it's always `scripts/<name>/`.
+
+```
+scripts/
+├── docker/          # Docker work-server & container lifecycle
+├── emacs/           # Emacs macOS install script
+├── fileserver/      # File server (client + server + deploy)
+├── mixapi/          # MIXAPI management
+├── opencode/        # OpenCode install script
+├── pesudo/          # Sudo replacement with audit
+├── proxy/           # Proxy tools (fetch.sh, free.sh, cron)
+├── socks/           # SOCKS proxy
+└── wireguard/       # WireGuard configs
+```
+
+New additions go into `scripts/<name>/` with its own README, scripts, and optionally a `register.sh`.
+
 ## Docker-in-Docker
 
 The dev container runs Docker via host socket at `/var/run/docker.sock`.
