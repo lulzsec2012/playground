@@ -73,6 +73,33 @@ work-server() {
     echo "📝 Generating config for '$instance'..."
     bash "$SCRIPT_DIR/generate-home-config.sh" "$config_dir"
 
+    # Auto-configure Clash proxy — if no subscription URL, download free proxies
+    if ! grep -qE '^CLASH_SUBSCRIPTION_URL=.+' "$config_dir/.ssh/vpn.cfg" 2>/dev/null; then
+        if [ ! -f "$CLASH_CONFIG/config.yaml" ]; then
+            echo "📡 No Clash subscription URL. Fetching free proxies..."
+            mkdir -p "$CLASH_CONFIG"
+            if [ -f "$SCRIPT_DIR/../proxy/fetch.sh" ]; then
+                # Timeout: 90s for all 5 sources (each has 20s curl limit)
+                if command -v timeout &>/dev/null; then
+                    timeout 90 bash "$SCRIPT_DIR/../proxy/fetch.sh" 2>/dev/null || true
+                else
+                    bash "$SCRIPT_DIR/../proxy/fetch.sh" 2>/dev/null || true
+                fi
+                if [ -f "$SCRIPT_DIR/../proxy/config.yaml" ]; then
+                    NODES=$(grep -c '^- name:' "$SCRIPT_DIR/../proxy/config.yaml" 2>/dev/null || echo 0)
+                    if [ "$NODES" -gt 0 ]; then
+                        cp "$SCRIPT_DIR/../proxy/config.yaml" "$CLASH_CONFIG/config.yaml"
+                        echo "  ✅ Free proxy config saved ($NODES nodes)"
+                    fi
+                fi
+            fi
+            if [ ! -f "$CLASH_CONFIG/config.yaml" ]; then
+                echo "mixed-port: 7890" > "$CLASH_CONFIG/config.yaml"
+                echo "  ℹ️ Created minimal clash config (placeholder, no nodes)"
+            fi
+        fi
+    fi
+
     if docker inspect "$name" >/dev/null 2>&1; then
         $force && docker container rm -f "$name" >/dev/null 2>&1
     fi
