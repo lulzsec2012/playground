@@ -75,7 +75,7 @@ work-server() {
 
     # Auto-configure Clash proxy — if no subscription URL, download free proxies
     if ! grep -qE '^CLASH_SUBSCRIPTION_URL=.+' "$config_dir/.ssh/vpn.cfg" 2>/dev/null; then
-        if [ ! -f "$CLASH_CONFIG/config.yaml" ]; then
+        if [ ! -f "$CLASH_CONFIG/clash_config.yaml" ]; then
             echo "📡 No Clash subscription URL. Fetching free proxies..."
             mkdir -p "$CLASH_CONFIG"
             if [ -f "$SCRIPT_DIR/../proxy/fetch.sh" ]; then
@@ -88,13 +88,13 @@ work-server() {
                 if [ -f "$SCRIPT_DIR/../proxy/config.yaml" ]; then
                     NODES=$(grep -c '^- name:' "$SCRIPT_DIR/../proxy/config.yaml" 2>/dev/null || echo 0)
                     if [ "$NODES" -gt 0 ]; then
-                        cp "$SCRIPT_DIR/../proxy/config.yaml" "$CLASH_CONFIG/config.yaml"
+                        cp "$SCRIPT_DIR/../proxy/config.yaml" "$CLASH_CONFIG/clash_config.yaml"
                         echo "  ✅ Free proxy config saved ($NODES nodes)"
                     fi
                 fi
             fi
-            if [ ! -f "$CLASH_CONFIG/config.yaml" ]; then
-                echo "mixed-port: 7890" > "$CLASH_CONFIG/config.yaml"
+            if [ ! -f "$CLASH_CONFIG/clash_config.yaml" ]; then
+                echo "mixed-port: 7890" > "$CLASH_CONFIG/clash_config.yaml"
                 echo "  ℹ️ Created minimal clash config (placeholder, no nodes)"
             fi
         fi
