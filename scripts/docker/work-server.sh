@@ -129,6 +129,8 @@ work-server() {
     fi
 
     docker run -t --privileged "${gpu_opts[@]}" \
+        --ipc=host \
+        --ulimit memlock=-1:-1 \
         --log-driver=none \
         --hostname="D$(hostname)" \
         --name "$name" \
