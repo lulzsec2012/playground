@@ -28,6 +28,24 @@ generate_authorized_keys() {
     fi
 }
 
+# Append host machine's authorized_keys so anyone who can SSH into the
+# physical host without a password can also SSH into the container.
+append_host_authorized_keys() {
+    local dst="$1"
+    local host_auth_keys="$HOME/.ssh/authorized_keys"
+    if [[ ! -f "$host_auth_keys" ]]; then
+        return
+    fi
+    local before=$(wc -l < "$dst")
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        echo "$line" >> "$dst"
+    done < "$host_auth_keys"
+    local after=$(wc -l < "$dst")
+    local added=$((after - before))
+    echo "  host-authorized_keys: $added host keys appended"
+}
+
 generate_bashrc() {
     local target="$1"
     local fragment_dir="$TEMPLATE/bashrc"
@@ -76,7 +94,14 @@ generate() {
     done
 
     if [[ ! -f "$target_dir/.ssh/authorized_keys" || "$force" == true ]]; then
-        generate_authorized_keys "$DATA_DIR/ssh_keys.cfg" "$target_dir/.ssh/authorized_keys"
+        # Start from ssh_keys.cfg (if it exists), otherwise empty file
+        if [[ -f "$DATA_DIR/ssh_keys.cfg" ]]; then
+            generate_authorized_keys "$DATA_DIR/ssh_keys.cfg" "$target_dir/.ssh/authorized_keys"
+        else
+            > "$target_dir/.ssh/authorized_keys"
+        fi
+        # Append host machine's authorized_keys
+        append_host_authorized_keys "$target_dir/.ssh/authorized_keys"
     fi
 
     if [[ ! -f "$target_dir/.ssh/vpn.cfg" || "$force" == true ]]; then
