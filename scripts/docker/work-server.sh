@@ -18,8 +18,16 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -z "$HOST_IP" ]; then
+    # Detect physical machine IP from host network namespace (works inside containers too)
+    HOST_IP=$(docker run --rm --net=host alpine ip -o -4 addr show 2>/dev/null \
+        | grep -vE '\s+(lo|docker|br-)\s' \
+        | awk 'NR==1{print $4}' \
+        | cut -d/ -f1)
+fi
+if [ -z "$HOST_IP" ]; then
     HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 fi
+export HOST_IP
 : "${HOST_PORT:=}"
 
 # Dockerfiles: https://github.com/lulzsec2012/docker.git
@@ -161,6 +169,10 @@ work-server() {
         fi
     " 2>&1
     docker exec "$name" service ssh restart >/dev/null 2>&1
+
+    # Set tailscale hostname to dashed IP for easy identification in tailnet
+    local ts_hostname="${HOST_IP//./-}"
+    docker exec "$name" tailscale set --hostname="$ts_hostname" 2>/dev/null || true
 
     local bridge_ip=$(docker inspect "$name" --format "{{.NetworkSettings.IPAddress}}")
     echo "✅ $name started (bridge=$bridge_ip, host=127.0.0.1:$port)"

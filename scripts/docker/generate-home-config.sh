@@ -50,13 +50,22 @@ generate_bashrc() {
     local target="$1"
     local fragment_dir="$TEMPLATE/bashrc"
 
+    # Auto-detect host IP at generation time so .bashrc works in SSH sessions
+    # (Docker -e HOST_IP=... is not inherited by SSH logins)
+    local host_ip="${HOST_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+
     : > "$target"
+    echo "# --- host_ip ---" >> "$target"
+    echo "export HOST_IP=$host_ip" >> "$target"
+    echo "" >> "$target"
+
     for f in "$fragment_dir"/*.sh; do
         echo "# --- $(basename "$f") ---" >> "$target"
         cat "$f" >> "$target"
         echo "" >> "$target"
     done
     echo "  .bashrc: $(wc -l < "$target") lines from $(ls "$fragment_dir"/*.sh | wc -l) fragments"
+    echo "  .bashrc: host_ip=$host_ip"
 }
 
 generate() {

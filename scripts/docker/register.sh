@@ -28,6 +28,11 @@ gen_code() {
     cat <<CODE
 # ${NAME} — Docker work-server 工具
 source ${SCRIPT_DIR}/work-server.sh
+
+# work-server-scan — 扫描远程服务器容器，生成 tailscale SSH 别名
+work-server-scan() {
+  bash ${SCRIPT_DIR}/work-server-scan.sh "\$@"
+}
 CODE
 }
 

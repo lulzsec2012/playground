@@ -5,6 +5,17 @@ echo "========================================"
 echo "  OpenCode Environment Setup"
 echo "========================================"
 
+# ---------- user-local npm setup ----------
+# 所有 npm global 包安装到 ~/.local，避免 sudo
+export NPM_CONFIG_PREFIX="$HOME/.local"
+mkdir -p "$HOME/.local/bin"
+npm config set prefix "$HOME/.local" 2>/dev/null || true
+# 确保 PATH 包含用户本地 bin 目录
+case ":$PATH:" in
+  *:"$HOME/.local/bin":*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+
 # ---------- helpers ----------
 
 # npm 包版本检测：未安装则安装，已安装则对比 registry 版本决定升级/跳过
@@ -16,7 +27,7 @@ npm_check_upgrade() {
   installed=$(npm ls -g --depth=0 "$pkg" 2>&1 | grep -Eo "@[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?" | head -1 | tr -d '@')
   if [ -z "$installed" ]; then
     echo "  $label 未安装，正在安装..."
-    npm_install_or_sudo "$pkg" || { echo "  $label 安装失败" >&2; return 1; }
+    npm_install_user "$pkg" || { echo "  $label 安装失败" >&2; return 1; }
     return
   fi
 
@@ -31,17 +42,13 @@ npm_check_upgrade() {
     echo "  $label $installed（已是最新），跳过"
   else
     echo "  $label: $installed -> $latest，升级中..."
-    npm_install_or_sudo "$pkg" || { echo "  $label 升级失败" >&2; return 1; }
+    npm_install_user "$pkg" || { echo "  $label 升级失败" >&2; return 1; }
   fi
 }
 
-npm_install_or_sudo() {
+npm_install_user() {
   local pkg="$1"
-  if npm install -g "$pkg" 2>/dev/null; then
-    return 0
-  fi
-  echo "  /usr/local 无写入权限，使用 sudo 安装..."
-  sudo npm install -g "$pkg"
+  npm install -g "$pkg"
 }
 
 ver_gt() {
@@ -52,7 +59,7 @@ ver_gt() {
 echo ""
 echo "[1/7] Installing opencode CLI..."
 npm_install_opencode() {
-  npm_install_or_sudo "opencode-ai"
+  npm_install_user "opencode-ai"
 }
 
 if command -v opencode &>/dev/null; then
@@ -226,6 +233,27 @@ if command -v cargo &>/dev/null; then
 else
   echo "  cargo 不可用，跳过 opencode-multi"
 fi
+
+# ---------- PATH 注入 .bashrc ----------
+echo ""
+echo "[8/8] Ensuring PATH is set in ~/.bashrc..."
+_patch_bashrc_path() {
+  local path_entry="$1"
+  local marker="$2"
+  if grep -qF "$marker" "$HOME/.bashrc" 2>/dev/null; then
+    echo "  $path_entry 已存在，跳过"
+    return
+  fi
+  cat >> "$HOME/.bashrc" <<EOF
+
+# $marker
+export PATH="\$PATH:$path_entry"
+EOF
+  echo "  $path_entry 已添加到 ~/.bashrc"
+}
+_patch_bashrc_path "$HOME/.local/bin" "opencode-user-local-bin"
+_patch_bashrc_path "$HOME/.bun/bin" "opencode-bun-bin"
+_patch_bashrc_path "$HOME/.cargo/bin" "opencode-cargo-bin"
 
 echo ""
 echo "========================================"
