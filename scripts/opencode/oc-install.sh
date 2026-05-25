@@ -234,6 +234,79 @@ else
   echo "  cargo 不可用，跳过 opencode-multi"
 fi
 
+# ---------- RTK (Rust Token Killer) ----------
+echo ""
+echo "--- RTK (Rust Token Killer) ---"
+echo "  RTK 是一款 CLI 代理，可将常见开发命令的 LLM token 消耗降低 60-90%"
+
+if command -v rtk &>/dev/null; then
+  echo "  rtk $(rtk --version 2>/dev/null) 已安装"
+else
+  echo "  通过官方脚本安装 rtk..."
+  if curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh; then
+    # install.sh 安装到 ~/.local/bin
+    echo "  rtk 安装成功"
+  else
+    echo "  ⚠️ rtk 安装失败，请稍后手动执行安装命令" >&2
+  fi
+fi
+
+# 确保 rtk 在 PATH 中
+export PATH="$HOME/.local/bin:$PATH"
+
+if command -v rtk &>/dev/null; then
+  echo "  配置 RTK OpenCode 插件..."
+  if rtk init -g --opencode; then
+    echo "  RTK OpenCode 插件配置完成"
+  else
+    echo "  ⚠️ rtk init 配置失败，请稍后手动执行: rtk init -g --opencode" >&2
+  fi
+fi
+
+# ---------- helper: 向 opencode.json plugin 列表添加插件 ----------
+add_plugin_if_missing() {
+  local config_file="$1"
+  local plugin="$2"
+
+  if [ ! -f "$config_file" ]; then
+    echo "  配置文件不存在，跳过: $config_file"
+    return
+  fi
+
+  if jq -e ".plugin | index(\"$plugin\")" "$config_file" >/dev/null 2>&1; then
+    echo "  $plugin 已存在于 $(basename "$(dirname "$config_file")")/opencode.json，跳过"
+    return
+  fi
+
+  jq ".plugin += [\"$plugin\"]" "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
+  echo "  $plugin 已添加到 $config_file"
+}
+
+# ---------- opencode-codegraph ----------
+echo ""
+echo "--- opencode-codegraph ---"
+echo "  opencode-codegraph 通过分析 GitHub PR 为代码审查提供图上下文"
+echo "  仓库: https://github.com/colbymchenry/codegraph"
+
+if command -v codegraph &>/dev/null; then
+  echo "  codegraph $(codegraph --version 2>/dev/null) 已安装"
+else
+  echo "  通过官方脚本安装 codegraph..."
+  if curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh; then
+    echo "  codegraph 安装成功"
+  else
+    echo "  ⚠️ codegraph 安装失败，请稍后手动执行: curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh" >&2
+  fi
+fi
+
+echo "  配置 opencode-codegraph 插件到所有 opencode.json..."
+
+add_plugin_if_missing "$HOME/.config/opencode/opencode.json" "opencode-codegraph"
+
+for f in "$HOME/.config/opencode-multi/profiles/"*/opencode.json; do
+  [ -f "$f" ] && add_plugin_if_missing "$f" "opencode-codegraph"
+done
+
 # ---------- PATH 注入 .bashrc ----------
 echo ""
 echo "[8/8] Ensuring PATH is set in ~/.bashrc..."
