@@ -44,6 +44,11 @@ trap _cleanup EXIT
 readonly PROBES=(
   "11434:ollama:/api/tags:name"
   "8000:vllm:/v1/models:id"
+  "8001:vllm:/v1/models:id"
+  "8002:vllm:/v1/models:id"
+  "8003:vllm:/v1/models:id"
+  "8004:vllm:/v1/models:id"
+  "8005:vllm:/v1/models:id"
   "80:tgi:/info:model_id"
   "8080:tgi-alt:/info:model_id"
   "8188:comfyui:/system_stats:null"
