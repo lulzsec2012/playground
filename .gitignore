@@ -14,5 +14,14 @@ luluman_docker/
 # Sisyphus working directory
 .sisyphus
 
+# OpenCode working directory
+.omo/
+
+# Data directory (sensitive configs, generated content)
+data/
+
+# Gitea — 仓库代码、数据库、配置等数据，不应提交到 Git
+scripts/gitea/data/
+
 # macOS
 .DS_Store
