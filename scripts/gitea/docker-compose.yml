@@ -1,0 +1,38 @@
+# =============================================================================
+# Gitea 部署方案 A — SQLite 单容器（适合个人/小团队）
+# =============================================================================
+# 使用方式:
+#   bash deploy.sh up     # 启动
+#   bash deploy.sh down   # 停止
+#   bash deploy.sh logs   # 查看日志
+#   bash deploy.sh status # 查看状态
+# =============================================================================
+#
+# 数据目录通过 ${GITEA_DATA_DIR} 注入，由 deploy.sh 自动计算:
+#   - 物理机:     bind mount  ~/workspace/gitea
+#   - 容器内:     通过 findmnt 反推宿主机路径后 bind mount
+#   - 反推失败:   named volume gitea-data（fallback）
+# =============================================================================
+
+services:
+  server:
+    # 官方镜像: https://docs.gitea.com/installation/install-with-docker
+    image: docker.gitea.com/gitea:1.26.2
+    container_name: gitea
+    environment:
+      # 容器内 git 用户的 UID/GID
+      - USER_UID=6032
+      - USER_GID=5005
+    restart: always
+    volumes:
+      # GITEA_DATA_DIR 由 deploy.sh compute_data_dir() 自动计算
+      - ${GITEA_DATA_DIR:-gitea-data}:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"   # Web UI
+      - "222:22"      # SSH（映射到宿主机 222 端口，避免与宿主机 SSH 的 22 端口冲突）
+
+volumes:
+  gitea-data:
+    driver: local
