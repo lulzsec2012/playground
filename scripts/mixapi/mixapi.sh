@@ -13,6 +13,8 @@
 #   mixapi.sh cron-install      # 安装 cron 自动同步
 #   mixapi.sh cron-remove       # 移除 cron 自动同步
 #   mixapi.sh --cron            # cron 入口（增量扫描 + 自动同步）
+#   mixapi.sh repair            # 修复 abilities 表一致性
+#   mixapi.sh repair --check    # 仅检查 abilities 一致性
 
 set -euo pipefail
 
@@ -239,6 +241,10 @@ do_cron() {
     echo "[cron] discover 执行异常 (exit=${discover_exit})" >> "$CRON_LOG"
   fi
 
+  # Run health check
+  echo "[cron] $(date -u +%Y-%m-%dT%H:%M:%SZ) 健康检查..." >> "$CRON_LOG"
+  bash "${SCRIPT_DIR}/health.sh" >> "$CRON_LOG" 2>&1 || true
+
   echo "[cron] $(date -u +%Y-%m-%dT%H:%M:%SZ) 完成" >> "$CRON_LOG"
   flock -u 200
 }
@@ -260,6 +266,7 @@ usage() {
   echo
   echo "  监控:"
   echo "    status            查看 services 状态"
+  echo "    health            健康检测 + abilities 一致性修复"
   echo "    cron-install      安装 cron 自动同步（每5分钟）"
   echo "    cron-remove       移除 cron 自动同步"
   echo
@@ -306,6 +313,9 @@ main() {
       ;;
     --cron)
       do_cron "$@"
+      ;;
+    health)
+      exec bash "${SCRIPT_DIR}/health.sh" "$@"
       ;;
     -h|--help)
       usage

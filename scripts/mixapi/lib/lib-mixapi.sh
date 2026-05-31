@@ -326,15 +326,17 @@ channel_list() {
 
 # Description: 添加新渠道
 # Arguments:   $1 name, $2 type, $3 base_url, $4 models_csv, $5 key
+#              $6 tag（可选，用于 channel.sh 自动同步标记）
 # Output:      失败时输出错误消息到 stderr
 # Returns:     0=成功, 1=失败
 channel_add() {
   local name="$1" type="$2" base_url="$3" models_csv="$4" key="$5"
+  local tag="${6:-}"
   local json
   # type is numeric; pass all values via environment to avoid quoting issues
   # with special characters in names, URLs, or keys.
   json=$(_PY_TYPE="$type" _PY_NAME="$name" _PY_KEY="$key" \
-    _PY_BASE_URL="$base_url" _PY_MODELS="$models_csv" python3 -c "
+    _PY_BASE_URL="$base_url" _PY_MODELS="$models_csv" _PY_TAG="$tag" python3 -c "
 import json, os
 channel = {
     'type': int(os.environ['_PY_TYPE']),
@@ -345,6 +347,9 @@ channel = {
     'group': 'default',
     'status': 1
 }
+tag = os.environ.get('_PY_TAG', '')
+if tag:
+    channel['tag'] = tag
 body = {'mode': 'single', 'channel': channel}
 print(json.dumps(body, ensure_ascii=False))
 ")
@@ -362,13 +367,18 @@ print(json.dumps(body, ensure_ascii=False))
 
 # Description: 更新渠道（全量替换）
 # Arguments:   $1 id, $2 name, $3 type, $4 base_url, $5 models_csv, $6 key
+#              $7 tag（可选，用于 channel.sh 自动同步标记）
+#              $8 status（可选，1=active, 2=disabled，用于 health.sh）
 # Output:      失败时输出错误消息到 stderr
 # Returns:     0=成功, 1=失败
 channel_update() {
   local id="$1" name="$2" type="$3" base_url="$4" models_csv="$5" key="$6"
+  local tag="${7:-}"
+  local status="${8:-1}"
   local json
   json=$(_PY_ID="$id" _PY_TYPE="$type" _PY_NAME="$name" _PY_KEY="$key" \
-    _PY_BASE_URL="$base_url" _PY_MODELS="$models_csv" python3 -c "
+    _PY_BASE_URL="$base_url" _PY_MODELS="$models_csv" _PY_TAG="$tag" \
+    _PY_STATUS="$status" python3 -c "
 import json, os
 channel = {
     'id': int(os.environ['_PY_ID']),
@@ -378,8 +388,11 @@ channel = {
     'base_url': os.environ['_PY_BASE_URL'],
     'models': os.environ['_PY_MODELS'],
     'group': 'default',
-    'status': 1
+    'status': int(os.environ.get('_PY_STATUS', '1'))
 }
+tag = os.environ.get('_PY_TAG', '')
+if tag:
+    channel['tag'] = tag
 print(json.dumps(channel, ensure_ascii=False))
 ")
   local resp
@@ -418,13 +431,14 @@ channel_delete() {
 # Returns:     0=成功, 1=失败（委托 channel_add 的返回值）
 channel_add_json() {
   local config="$1"
-  local type name base_url models_csv key
+  local type name base_url models_csv key tag
   type=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('type',1))")
   name=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))")
   base_url=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('base_url',''))")
   models_csv=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('models',''))")
   key=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('key','ollama'))")
-  channel_add "$name" "$type" "$base_url" "$models_csv" "$key"
+  tag=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tag',''))")
+  channel_add "$name" "$type" "$base_url" "$models_csv" "$key" "$tag"
 }
 
 # Description: 更新渠道（接受完整 JSON 配置，提取字段后委托 channel_update）
@@ -433,14 +447,16 @@ channel_add_json() {
 # Returns:     0=成功, 1=失败（委托 channel_update 的返回值）
 channel_update_json() {
   local config="$1"
-  local id type name base_url models_csv key
+  local id type name base_url models_csv key tag status
   id=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',0))")
   type=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('type',1))")
   name=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))")
   base_url=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('base_url',''))")
   models_csv=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('models',''))")
   key=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('key','ollama'))")
-  channel_update "$id" "$name" "$type" "$base_url" "$models_csv" "$key"
+  tag=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tag',''))")
+  status=$(echo "$config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',1))")
+  channel_update "$id" "$name" "$type" "$base_url" "$models_csv" "$key" "$tag" "$status"
 }
 
 

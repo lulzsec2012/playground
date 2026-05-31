@@ -156,7 +156,15 @@ print(json.dumps({'node': '$name', 'ip': '$ip', 'port': $port, 'service': '$svc'
   resp=$(http_get "$ip" "$port" "$api_path" 5 || true)
 
   if [[ -z "$resp" ]]; then
-    # Port open but API unresponsive
+    # Port open but API unresponsive - check /health for vLLM
+    if [[ "$svc" == "vllm" ]]; then
+      local health_resp
+      health_resp=$(http_get "$ip" "$port" "/health" 3 || true)
+      if [[ -z "$health_resp" ]] || [[ "$health_resp" != *"healthy"* ]] && [[ "$health_resp" != "OK" ]]; then
+        echo
+        return
+      fi
+    fi
     python3 -c "
 import json
 print(json.dumps({'node': '$name', 'ip': '$ip', 'port': $port, 'service': '$svc', 'models': [], 'status': 'active'}, ensure_ascii=False))
@@ -166,6 +174,20 @@ print(json.dumps({'node': '$name', 'ip': '$ip', 'port': $port, 'service': '$svc'
 
   local models
   models=$(extract_models "$resp" "$model_key" "$svc")
+
+  # For vLLM: if /v1/models returned empty, also probe /health
+  if [[ "$svc" == "vllm" ]]; then
+    local models_json
+    models_json=$(echo "$models" | python3 -c "import json,sys; d=json.load(sys.stdin); print('empty' if len(d)==0 else 'ok')" 2>/dev/null)
+    if [[ "$models_json" == "empty" ]]; then
+      local health_resp
+      health_resp=$(http_get "$ip" "$port" "/health" 3 || true)
+      if [[ -z "$health_resp" ]] || [[ "$health_resp" != *"healthy"* ]] && [[ "$health_resp" != "OK" ]]; then
+        echo
+        return
+      fi
+    fi
+  fi
 
   python3 -c "
 import json, sys
