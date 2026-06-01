@@ -50,14 +50,17 @@ ensure_rc_sources_reg_dir() {
     local rc_file
     rc_file="$(detect_rc)"
     [[ -z "$rc_file" || ! -f "$rc_file" ]] && return
+    # shellcheck disable=SC2016 # single quotes intentional: literal shell snippet for rc file
     local line='[ -d "$HOME/.config/playground/registrations.d" ] && for f in "$HOME/.config/playground/registrations.d/"*.sh; do [ -f "$f" ] && . "$f" 2>/dev/null; done || true'
 
     if grep -qxF "$line" "$rc_file" 2>/dev/null; then
         return 0
     fi
-    echo "" >> "$rc_file"
-    echo "# Playground scripts registration" >> "$rc_file"
-    echo "$line" >> "$rc_file"
+    {
+        echo ""
+        echo "# Playground scripts registration"
+        echo "$line"
+    } >> "$rc_file"
 }
 
 install() {
@@ -66,6 +69,7 @@ install() {
     echo "   ✓ 写入 ${REG_FILE}"
     cleanup_old_style
     ensure_rc_sources_reg_dir
+    # shellcheck disable=SC1090 # non-constant source is intentional (dynamic reg file)
     (set +u; source "$REG_FILE" 2>/dev/null) || true
     echo "   ✓ ${NAME} 已注册"
 }
