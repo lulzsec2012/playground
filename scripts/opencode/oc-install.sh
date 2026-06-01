@@ -188,6 +188,29 @@ echo ""
 echo "--- Optional tools ---"
 
 echo ""
+echo "opencode-autoresearch:"
+echo "  github.com/Maleick/AutoResearch — 自治研究循环"
+npm_check_upgrade "opencode-autoresearch"
+
+echo "  检测 opencode 配置文件..."
+_autoresearch_add_plugin() {
+  local cfg="$1"
+  [ ! -f "$cfg" ] && return
+  if jq -e '.plugin // [] | any(. == "opencode-autoresearch@latest")' "$cfg" >/dev/null 2>&1; then
+    echo "    ✓ ${cfg//$HOME\//~/}（插件已存在）"
+  else
+    jq '.plugin += ["opencode-autoresearch@latest"]' "$cfg" > "${cfg}.tmp" && mv "${cfg}.tmp" "$cfg"
+    echo "    + ${cfg//$HOME\//~/}（插件已添加）"
+  fi
+}
+
+_autoresearch_add_plugin "$HOME/.config/opencode/opencode.json"
+for _f in "$HOME/.config/opencode-multi/profiles/"*/opencode.json; do
+  _autoresearch_add_plugin "$_f"
+done
+echo "  用法: 重启后在项目中运行 /autoresearch 启动向导"
+
+echo ""
 echo "opencode-agent-optimizer:"
 npm_check_upgrade "opencode-agent-optimizer"
 echo "  用法: opencode-agent-optimizer summary"
