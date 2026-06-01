@@ -43,7 +43,9 @@ CONFIGS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "chromego_co
 OUTPUT_PATH = os.path.join(CONFIGS_DIR, "config.json")
 
 FALLBACK_KEY = "fallback"
-SITE_GROUPS_FILE = os.path.join(os.path.dirname(__file__), "..", "config", "priority-sites.yaml")
+SITE_GROUPS_FILE = os.path.join(
+    os.path.dirname(__file__), "..", "config", "priority-sites.yaml"
+)
 
 # Hardcoded fallback when no site-groups.yaml exists
 _FALLBACK_SITE_GROUPS = {
@@ -105,7 +107,9 @@ def load_site_groups(path=None):
             if "route_groups" in data:
                 return data["route_groups"]
             return data
-    default_path = os.path.join(os.path.dirname(__file__), "..", "config", "priority-sites.yaml")
+    default_path = os.path.join(
+        os.path.dirname(__file__), "..", "config", "priority-sites.yaml"
+    )
     if default_path != path and os.path.isfile(default_path):
         print(f"Loading route groups: {default_path}")
         with open(default_path) as f:
@@ -132,7 +136,9 @@ def _parse_bw(bandwidth):
 
 
 def _tag(label, idx, prefix):
-    safe = re.sub(r"[^a-zA-Z0-9_-]", "", label.split("/")[-1] if "/" in label else label)[:30]
+    safe = re.sub(
+        r"[^a-zA-Z0-9_-]", "", label.split("/")[-1] if "/" in label else label
+    )[:30]
     return f"{prefix}-{safe}-{idx}" if safe else f"{prefix}-{idx}"
 
 
@@ -273,12 +279,12 @@ def convert_xray(src_dir, obs, seen, counter):
                 sing_ob["tls"] = {
                     "enabled": True,
                     "server_name": (
-                        (stream.get("tlsSettings") or {})
-                        .get("serverName", svr["address"])
+                        (stream.get("tlsSettings") or {}).get(
+                            "serverName", svr["address"]
+                        )
                     ),
                     "insecure": (
-                        (stream.get("tlsSettings") or {})
-                        .get("allowInsecure", False)
+                        (stream.get("tlsSettings") or {}).get("allowInsecure", False)
                     ),
                 }
             if _add_outbound(obs, sing_ob, seen):
@@ -382,7 +388,9 @@ def convert_juicity(src_dir, obs, seen, counter):
         return 0
     files = sorted(f for f in os.listdir(src_dir) if f.endswith(".json"))
     if files:
-        print(f"  juicity/: {len(files)} nodes (SKIPPED - deprecated in sing-box 1.11+)")
+        print(
+            f"  juicity/: {len(files)} nodes (SKIPPED - deprecated in sing-box 1.11+)"
+        )
     return 0
 
 
@@ -392,7 +400,9 @@ def convert_naiveproxy(src_dir, obs, seen, counter):
         return 0
     files = sorted(f for f in os.listdir(src_dir) if f.endswith(".json"))
     if files:
-        print(f"  naiveproxy/: {len(files)} nodes (SKIPPED - deprecated in sing-box 1.11+)")
+        print(
+            f"  naiveproxy/: {len(files)} nodes (SKIPPED - deprecated in sing-box 1.11+)"
+        )
     return 0
 
 
@@ -507,7 +517,11 @@ def _convert_clash_proxy(p, idx):
             "auth_str": p.get("auth-str") or p.get("auth_str", ""),
         }
         tls = _clash_tls(p)
-        ob["tls"] = tls or {"enabled": True, "server_name": p.get("server", ""), "insecure": True}
+        ob["tls"] = tls or {
+            "enabled": True,
+            "server_name": p.get("server", ""),
+            "insecure": True,
+        }
         if p.get("protocol") and p["protocol"] != "udp":
             ob["protocol"] = p["protocol"]
         if p.get("recv_window_conn"):
@@ -527,7 +541,11 @@ def _convert_clash_proxy(p, idx):
             "password": p.get("password", ""),
         }
         tls = _clash_tls(p)
-        ob["tls"] = tls or {"enabled": True, "server_name": p.get("server", ""), "insecure": True}
+        ob["tls"] = tls or {
+            "enabled": True,
+            "server_name": p.get("server", ""),
+            "insecure": True,
+        }
         if p.get("up") or p.get("down"):
             ob["up_mbps"] = _mbps(p.get("up", "0"))
             ob["down_mbps"] = _mbps(p.get("down", "0"))
@@ -580,11 +598,17 @@ def _convert_clash_proxy(p, idx):
             "congestion_control": p.get("congestion-control", "bbr"),
         }
         tls = _clash_tls(p)
-        ob["tls"] = tls or {"enabled": True, "server_name": p.get("server", ""), "insecure": True}
+        ob["tls"] = tls or {
+            "enabled": True,
+            "server_name": p.get("server", ""),
+            "insecure": True,
+        }
         if p.get("udp-relay-mode"):
             ob["udp_relay_mode"] = p["udp-relay-mode"]
         if p.get("alpn"):
-            ob["tls"]["alpn"] = p["alpn"] if isinstance(p["alpn"], list) else [p["alpn"]]
+            ob["tls"]["alpn"] = (
+                p["alpn"] if isinstance(p["alpn"], list) else [p["alpn"]]
+            )
         if p.get("reduce-rtt"):
             ob["reduce_rtt"] = p["reduce-rtt"]
         if p.get("request-timeout"):
@@ -647,8 +671,15 @@ def convert_clash_yaml(yaml_path, obs, seen, counter):
 # ---------- Multi-group config generation ----------
 
 
-def generate(configs_dir, proxy_yaml, output_path, listen="127.0.0.1",
-             port=1080, dashboard_port=9090, site_groups=None):
+def generate(
+    configs_dir,
+    proxy_yaml,
+    output_path,
+    listen="127.0.0.1",
+    port=1080,
+    dashboard_port=9090,
+    site_groups=None,
+):
     if site_groups is None:
         site_groups = _FALLBACK_SITE_GROUPS
     print(f"Config dir: {configs_dir}")
@@ -661,20 +692,48 @@ def generate(configs_dir, proxy_yaml, output_path, listen="127.0.0.1",
     counter = iter(range(100000))
 
     converters = [
-        ("Clash Meta", convert_clash_meta(
-            os.path.join(configs_dir, "clash.meta2"), all_outbounds, seen, counter)),
-        ("Xray", convert_xray(
-            os.path.join(configs_dir, "xray"), all_outbounds, seen, counter)),
-        ("Sing-box", convert_singbox(
-            os.path.join(configs_dir, "singbox"), all_outbounds, seen, counter)),
-        ("Hysteria2", convert_hysteria2(
-            os.path.join(configs_dir, "hysteria2"), all_outbounds, seen, counter)),
-        ("Hysteria", convert_hysteria(
-            os.path.join(configs_dir, "hysteria"), all_outbounds, seen, counter)),
-        ("Juicity", convert_juicity(
-            os.path.join(configs_dir, "juicity"), all_outbounds, seen, counter)),
-        ("Naiveproxy", convert_naiveproxy(
-            os.path.join(configs_dir, "naiveproxy"), all_outbounds, seen, counter)),
+        (
+            "Clash Meta",
+            convert_clash_meta(
+                os.path.join(configs_dir, "clash.meta2"), all_outbounds, seen, counter
+            ),
+        ),
+        (
+            "Xray",
+            convert_xray(
+                os.path.join(configs_dir, "xray"), all_outbounds, seen, counter
+            ),
+        ),
+        (
+            "Sing-box",
+            convert_singbox(
+                os.path.join(configs_dir, "singbox"), all_outbounds, seen, counter
+            ),
+        ),
+        (
+            "Hysteria2",
+            convert_hysteria2(
+                os.path.join(configs_dir, "hysteria2"), all_outbounds, seen, counter
+            ),
+        ),
+        (
+            "Hysteria",
+            convert_hysteria(
+                os.path.join(configs_dir, "hysteria"), all_outbounds, seen, counter
+            ),
+        ),
+        (
+            "Juicity",
+            convert_juicity(
+                os.path.join(configs_dir, "juicity"), all_outbounds, seen, counter
+            ),
+        ),
+        (
+            "Naiveproxy",
+            convert_naiveproxy(
+                os.path.join(configs_dir, "naiveproxy"), all_outbounds, seen, counter
+            ),
+        ),
     ]
 
     clash_count = 0
@@ -696,42 +755,50 @@ def generate(configs_dir, proxy_yaml, output_path, listen="127.0.0.1",
         selector_tag = f"{key}-selector"
         urltest_tag = f"{key}-urltest"
 
-        group_outbounds.append({
-            "type": "selector",
-            "tag": selector_tag,
-            "outbounds": [urltest_tag] + proxy_tags,
-            "default": urltest_tag,
-        })
-        group_outbounds.append({
-            "type": "urltest",
-            "tag": urltest_tag,
-            "outbounds": proxy_tags,
-            "url": info["test_url"],
-            "interval": "5m",
-            "tolerance": 100,
-        })
+        group_outbounds.append(
+            {
+                "type": "selector",
+                "tag": selector_tag,
+                "outbounds": [urltest_tag] + proxy_tags,
+                "default": urltest_tag,
+            }
+        )
+        group_outbounds.append(
+            {
+                "type": "urltest",
+                "tag": urltest_tag,
+                "outbounds": proxy_tags,
+                "url": info["test_url"],
+                "interval": "5m",
+                "tolerance": 100,
+            }
+        )
 
-    group_outbounds.extend([
-        {
-            "type": "selector",
-            "tag": f"{FALLBACK_KEY}-selector",
-            "outbounds": [f"{FALLBACK_KEY}-urltest"] + proxy_tags,
-            "default": f"{FALLBACK_KEY}-urltest",
-        },
-        {
-            "type": "urltest",
-            "tag": f"{FALLBACK_KEY}-urltest",
-            "outbounds": proxy_tags,
-            "url": "http://cp.cloudflare.com/generate_204",
-            "interval": "5m",
-            "tolerance": 50,
-        },
-    ])
+    group_outbounds.extend(
+        [
+            {
+                "type": "selector",
+                "tag": f"{FALLBACK_KEY}-selector",
+                "outbounds": [f"{FALLBACK_KEY}-urltest"] + proxy_tags,
+                "default": f"{FALLBACK_KEY}-urltest",
+            },
+            {
+                "type": "urltest",
+                "tag": f"{FALLBACK_KEY}-urltest",
+                "outbounds": proxy_tags,
+                "url": "http://cp.cloudflare.com/generate_204",
+                "interval": "5m",
+                "tolerance": 50,
+            },
+        ]
+    )
 
-    group_outbounds.extend([
-        {"type": "direct", "tag": "direct"},
-        {"type": "block", "tag": "block"},
-    ])
+    group_outbounds.extend(
+        [
+            {"type": "direct", "tag": "direct"},
+            {"type": "block", "tag": "block"},
+        ]
+    )
 
     route_rules = [
         {"action": "sniff"},
@@ -749,10 +816,12 @@ def generate(configs_dir, proxy_yaml, output_path, listen="127.0.0.1",
         {"rule_set": "geoip-cn", "outbound": "direct"},
     ]
     for key, info in site_groups.items():
-        route_rules.append({
-            "domain_suffix": info["domains"],
-            "outbound": f"{key}-selector",
-        })
+        route_rules.append(
+            {
+                "domain_suffix": info["domains"],
+                "outbound": f"{key}-selector",
+            }
+        )
 
     config = {
         "log": {
@@ -776,11 +845,13 @@ def generate(configs_dir, proxy_yaml, output_path, listen="127.0.0.1",
                 {
                     "type": "local",
                     "tag": "geoip-cn",
+                    "format": "source",
                     "path": "/var/lib/sing-box/rule-set/geoip-cn.srs",
                 },
                 {
                     "type": "local",
                     "tag": "geosite-cn",
+                    "format": "source",
                     "path": "/var/lib/sing-box/rule-set/geosite-cn.srs",
                 },
             ],
@@ -791,7 +862,7 @@ def generate(configs_dir, proxy_yaml, output_path, listen="127.0.0.1",
                 "path": "/var/lib/sing-box/cache.db",
             },
             "clash_api": {
-                "external_controller": f"127.0.0.1:{dashboard_port}",
+                "external_controller": f"{listen}:{dashboard_port}",
                 "default_mode": "rule",
             },
         },
@@ -810,7 +881,9 @@ def generate(configs_dir, proxy_yaml, output_path, listen="127.0.0.1",
     for t, c in sorted(by_type.items()):
         print(f"  {t:15s} {c}")
     print()
-    print(f"Route groups: {', '.join(info['label'] for info in site_groups.values())}, Fallback")
+    print(
+        f"Route groups: {', '.join(info['label'] for info in site_groups.values())}, Fallback"
+    )
     print(f"Dashboard: http://127.0.0.1:{dashboard_port}/ui")
 
     return True
@@ -819,28 +892,48 @@ def generate(configs_dir, proxy_yaml, output_path, listen="127.0.0.1",
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="ChromeGo to sing-box config converter (multi-group routing)")
-    parser.add_argument("--configs", default=CONFIGS_DIR,
-                        help=f"ChromeGo config directory (default {CONFIGS_DIR})")
-    parser.add_argument("--proxy-yaml", default=None,
-                        help="Clash YAML path (e.g. fetch.sh output config.yaml)")
-    parser.add_argument("--output", default=OUTPUT_PATH,
-                        help=f"Output path (default {OUTPUT_PATH})")
-    parser.add_argument("--listen", default="0.0.0.0",
-                        help="Listen address (default 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=1080,
-                        help="Listen port (default 1080)")
-    parser.add_argument("--dashboard-port", type=int, default=9090,
-                        help="Dashboard port (default 9090)")
-    parser.add_argument("--site-groups", default=None,
-                        help="Site groups YAML config path (default: site-groups.yaml next to script)")
+    parser = argparse.ArgumentParser(
+        description="ChromeGo to sing-box config converter (multi-group routing)"
+    )
+    parser.add_argument(
+        "--configs",
+        default=CONFIGS_DIR,
+        help=f"ChromeGo config directory (default {CONFIGS_DIR})",
+    )
+    parser.add_argument(
+        "--proxy-yaml",
+        default=None,
+        help="Clash YAML path (e.g. fetch.sh output config.yaml)",
+    )
+    parser.add_argument(
+        "--output", default=OUTPUT_PATH, help=f"Output path (default {OUTPUT_PATH})"
+    )
+    parser.add_argument(
+        "--listen", default="0.0.0.0", help="Listen address (default 0.0.0.0)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=1080, help="Listen port (default 1080)"
+    )
+    parser.add_argument(
+        "--dashboard-port", type=int, default=9090, help="Dashboard port (default 9090)"
+    )
+    parser.add_argument(
+        "--site-groups",
+        default=None,
+        help="Site groups YAML config path (default: site-groups.yaml next to script)",
+    )
     args = parser.parse_args()
 
     site_groups = load_site_groups(args.site_groups)
-    generate(args.configs, args.proxy_yaml, args.output,
-             listen=args.listen, port=args.port,
-             dashboard_port=args.dashboard_port,
-             site_groups=site_groups)
+    generate(
+        args.configs,
+        args.proxy_yaml,
+        args.output,
+        listen=args.listen,
+        port=args.port,
+        dashboard_port=args.dashboard_port,
+        site_groups=site_groups,
+    )
 
     print(f"\nStart:   sing-box run -c {args.output}")
     print(f"Dashboard: http://127.0.0.1:{args.dashboard_port}/ui")

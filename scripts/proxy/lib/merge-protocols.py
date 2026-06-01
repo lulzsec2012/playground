@@ -27,25 +27,35 @@ import yaml
 def _yaml_quote(name):
     if not name:
         return "''"
-    if re.search(r': |[@#\[\]{}!*|>\'",?$`]', name) or name.startswith(('-', '?', '&', ':')):
-        return '"' + name.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    if re.search(r': |[@#\[\]{}!*|>\'",?$`]', name) or name.startswith(
+        ("-", "?", "&", ":")
+    ):
+        return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
     return name
 
 
 def _write_json(path, data):
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     print(f"  ✅ {path}")
 
 
 def _write_yaml(path, data):
-    with open(path, 'w') as f:
-        yaml.dump(data, f, allow_unicode=True, default_flow_style=False,
-                  sort_keys=False, width=4096, indent=2)
+    with open(path, "w") as f:
+        yaml.dump(
+            data,
+            f,
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+            width=4096,
+            indent=2,
+        )
     print(f"  ✅ {path}")
 
 
 # ═══════════ 1. Clash Meta ═══════════
+
 
 def merge_clash(configs_dir, output_dir):
     src_dir = os.path.join(configs_dir, "clash.meta2")
@@ -95,11 +105,19 @@ def merge_clash(configs_dir, output_dir):
         "external-controller": ":9090",
         "proxies": all_proxies,
         "proxy-groups": [
-            {"name": "🚀 手动切换", "type": "select",
-             "proxies": ["♻️ 自动选择", "🎯 全球直连"] + proxy_names},
-            {"name": "♻️ 自动选择", "type": "url-test",
-             "url": "http://cp.cloudflare.com/generate_204", "interval": 300,
-             "tolerance": 50, "proxies": proxy_names},
+            {
+                "name": "🚀 手动切换",
+                "type": "select",
+                "proxies": ["♻️ 自动选择", "🎯 全球直连"] + proxy_names,
+            },
+            {
+                "name": "♻️ 自动选择",
+                "type": "url-test",
+                "url": "http://cp.cloudflare.com/generate_204",
+                "interval": 300,
+                "tolerance": 50,
+                "proxies": proxy_names,
+            },
             {"name": "🎯 全球直连", "type": "select", "proxies": ["DIRECT"]},
         ],
         "rules": [
@@ -119,6 +137,7 @@ def merge_clash(configs_dir, output_dir):
 
 
 # ═══════════ 2. Xray ═══════════
+
 
 def merge_xray(configs_dir, output_dir):
     src_dir = os.path.join(configs_dir, "xray")
@@ -184,16 +203,20 @@ def merge_xray(configs_dir, output_dir):
         "outbounds": all_outbounds + [{"protocol": "freedom", "tag": "direct"}],
         "routing": {
             "domainStrategy": "AsIs",
-            "balancers": [{
-                "tag": "loadbalance",
-                "selector": balancer_selectors,
-                "strategy": {"type": "roundRobin"},
-            }],
+            "balancers": [
+                {
+                    "tag": "loadbalance",
+                    "selector": balancer_selectors,
+                    "strategy": {"type": "roundRobin"},
+                }
+            ],
             "rules": [
-                {"type": "field", "outboundTag": "direct",
-                 "ip": ["geoip:private", "geoip:cn"]},
-                {"type": "field", "outboundTag": "direct",
-                 "domain": ["geosite:cn"]},
+                {
+                    "type": "field",
+                    "outboundTag": "direct",
+                    "ip": ["geoip:private", "geoip:cn"],
+                },
+                {"type": "field", "outboundTag": "direct", "domain": ["geosite:cn"]},
                 {"type": "field", "balancerTag": "loadbalance", "network": "tcp,udp"},
             ],
         },
@@ -205,6 +228,7 @@ def merge_xray(configs_dir, output_dir):
 
 
 # ═══════════ 3. Sing-box ═══════════
+
 
 def merge_singbox(configs_dir, output_dir):
     src_dir = os.path.join(configs_dir, "singbox")
@@ -256,16 +280,26 @@ def merge_singbox(configs_dir, output_dir):
     merged = {
         "log": first_cfg.get("log", {}),
         "inbounds": inbounds,
-        "outbounds": (all_outbounds
-                      + [{"type": "direct", "tag": "direct"}]
-                      + [{"type": "urltest", "tag": "urltest",
-                          "outbounds": selectors,
-                          "url": "http://cp.cloudflare.com/generate_204",
-                          "interval": "5m", "tolerance": 50}]),
+        "outbounds": (
+            all_outbounds
+            + [{"type": "direct", "tag": "direct"}]
+            + [
+                {
+                    "type": "urltest",
+                    "tag": "urltest",
+                    "outbounds": selectors,
+                    "url": "http://cp.cloudflare.com/generate_204",
+                    "interval": "5m",
+                    "tolerance": 50,
+                }
+            ]
+        ),
         "route": {
             "rules": [
-                {"inbound": [ib.get("tag") for ib in inbounds if ib.get("tag")],
-                 "action": "sniff"},
+                {
+                    "inbound": [ib.get("tag") for ib in inbounds if ib.get("tag")],
+                    "action": "sniff",
+                },
                 {"ip_is_private": True, "outbound": "direct"},
             ],
             "final": "urltest",
@@ -278,6 +312,7 @@ def merge_singbox(configs_dir, output_dir):
 
 
 # ═══════════ 4. Servers Summary ═══════════
+
 
 def _protocol_from_path(path):
     parts = path.split(os.sep)
@@ -319,12 +354,14 @@ def extract_servers(configs_dir, output_dir):
             if "proxies" in data and isinstance(data["proxies"], list):
                 for p in data["proxies"]:
                     if isinstance(p, dict) and "server" in p:
-                        servers.append({
-                            "source": fn,
-                            "protocol": f"clash-{p.get('type', '?')}",
-                            "server": f'{p.get("server", "")}:{p.get("port", "")}',
-                            "name": p.get("name", ""),
-                        })
+                        servers.append(
+                            {
+                                "source": fn,
+                                "protocol": f"clash-{p.get('type', '?')}",
+                                "server": f'{p.get("server", "")}:{p.get("port", "")}',
+                                "name": p.get("name", ""),
+                            }
+                        )
                 continue
 
             if "outbounds" in data:
@@ -343,7 +380,9 @@ def extract_servers(configs_dir, output_dir):
 
     out_path = os.path.join(output_dir, "servers.json")
     _write_json(out_path, {"count": len(servers), "servers": servers})
-    print(f"    共 {len(servers)} 条记录（{len(set(s['protocol'] for s in servers))} 种协议）")
+    print(
+        f"    共 {len(servers)} 条记录（{len(set(s['protocol'] for s in servers))} 种协议）"
+    )
 
 
 def _extract_outbound_info(data):
@@ -378,17 +417,24 @@ def _extract_simple_server(data):
                         return {"server": f"{ip}:{bindings[0].get('port', '')}"}
         return None
     auth = data.get("auth") or data.get("password") or ""
-    return {"server": svr, "auth": auth[:30] + "..." if len(str(auth)) > 30 else str(auth)}
+    return {
+        "server": svr,
+        "auth": auth[:30] + "..." if len(str(auth)) > 30 else str(auth),
+    }
 
 
 # ═══════════ Main ═══════════
+
 
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="ChromeGo 配置合并工具")
-    parser.add_argument("configs_dir", nargs="?",
-                        default=os.path.join(os.path.dirname(__file__), "chromego_configs"))
+    parser.add_argument(
+        "configs_dir",
+        nargs="?",
+        default=os.path.join(os.path.dirname(__file__), "chromego_configs"),
+    )
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--skip-clash", action="store_true")
     parser.add_argument("--skip-xray", action="store_true")

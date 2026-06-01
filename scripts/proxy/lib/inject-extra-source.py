@@ -19,9 +19,17 @@ def fetch_singbox(timeout=15):
         with open(CACHE_FILE, "w") as f:
             json.dump(data, f)
         return data
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as e:
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        TimeoutError,
+        json.JSONDecodeError,
+    ) as e:
         if os.path.exists(CACHE_FILE):
-            print(f"  \u26a0\ufe0f  \u4e0b\u8f7d\u5931\u8d25 ({e})\uff0c\u4f7f\u7528\u672c\u5730\u7f13\u5b58", file=sys.stderr)
+            print(
+                f"  \u26a0\ufe0f  \u4e0b\u8f7d\u5931\u8d25 ({e})\uff0c\u4f7f\u7528\u672c\u5730\u7f13\u5b58",
+                file=sys.stderr,
+            )
             with open(CACHE_FILE) as f:
                 return json.load(f)
         raise
@@ -35,7 +43,11 @@ def load_local_cache():
 
 
 def is_proxy_outbound(ob):
-    return ob.get("type", "") not in NON_PROXY_TYPES and "server" in ob and "server_port" in ob
+    return (
+        ob.get("type", "") not in NON_PROXY_TYPES
+        and "server" in ob
+        and "server_port" in ob
+    )
 
 
 def dedup_key(ob):
@@ -106,7 +118,10 @@ def main():
     args = [a for a in args if not a.startswith("--")]
 
     if not args:
-        print("用法: lib/inject-extra-source.py [--check] [--skip-download] <config.json>", file=sys.stderr)
+        print(
+            "用法: lib/inject-extra-source.py [--check] [--skip-download] <config.json>",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     config_path = args[0]
@@ -125,7 +140,10 @@ def main():
         if skip_download:
             extra_data = load_local_cache()
             if extra_data is None:
-                print("  WARN: no local cache, run without --skip-download first", file=sys.stderr)
+                print(
+                    "  WARN: no local cache, run without --skip-download first",
+                    file=sys.stderr,
+                )
                 sys.exit(1)
             print("  using local cache")
         else:

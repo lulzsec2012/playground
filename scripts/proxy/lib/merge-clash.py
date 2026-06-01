@@ -17,9 +17,13 @@ import unicodedata
 import yaml
 import copy
 
+
 def main():
     if len(sys.argv) < 4:
-        print("用法: merge.py <模板.yaml> <输出.yaml> <源文件1.yaml> [源文件2.yaml ...]", file=sys.stderr)
+        print(
+            "用法: merge.py <模板.yaml> <输出.yaml> <源文件1.yaml> [源文件2.yaml ...]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     template_path = sys.argv[1]
@@ -41,7 +45,7 @@ def main():
     after_rules = template[rules_idx:]
 
     # ---- 3. 提取模板自有节点 ----
-    rc_match = re.search(r'proxies:\n((?:\s+- .*\n?)*)', proxies_section)
+    rc_match = re.search(r"proxies:\n((?:\s+- .*\n?)*)", proxies_section)
     rc_proxies_text = rc_match.group(1) if rc_match else ""
 
     # 用 yaml 解析模板中的 proxies
@@ -82,7 +86,7 @@ def main():
         rest = raw[pidx:]
         proxies_yaml = rest
         # 去掉 proxies: 后的下一个顶层 key
-        for m in re.finditer(r'\n[a-z_][-a-z_0-9]*:', rest):
+        for m in re.finditer(r"\n[a-z_][-a-z_0-9]*:", rest):
             nxt = m.start()
             if nxt > 0:
                 proxies_yaml = rest[:nxt]
@@ -119,7 +123,7 @@ def main():
         default_flow_style=False,
         sort_keys=False,
         width=4096,
-        indent=2
+        indent=2,
     )
     # 去掉 yaml.dump 的文件头 (---\n)
     if proxies_yaml_out.startswith("---\n"):
@@ -127,7 +131,9 @@ def main():
 
     # ---- 6. 提取所有 proxy-group 名 ----
     group_names = set()
-    for m in re.finditer(r'^\s+-\s+name:\s*[\x27\x22]?([^\x27\x22,}\n]+)', groups_section, re.MULTILINE):
+    for m in re.finditer(
+        r"^\s+-\s+name:\s*[\x27\x22]?([^\x27\x22,}\n]+)", groups_section, re.MULTILINE
+    ):
         gname = m.group(1).strip()
         if gname:
             group_names.add(gname)
@@ -137,15 +143,18 @@ def main():
         if not n:
             return "''"
         # 包含 :空格、@、#、[]、{}、!、*、|、>、开头是-?等 → 需要双引号
-        if re.search(r': |[@#\[\]{}!*|>\'",?$`]', n) or n.startswith(('-', '?', '&', ':')):
-            return '"' + n.replace('\\', '\\\\').replace('"', '\\"') + '"'
+        if re.search(r': |[@#\[\]{}!*|>\'",?$`]', n) or n.startswith(
+            ("-", "?", "&", ":")
+        ):
+            return '"' + n.replace("\\", "\\\\").replace('"', '\\"') + '"'
         return n
+
     proxy_list_yaml = "\n".join(f"      - {yaml_quote(name)}" for name in proxy_names)
 
     # ---- 8. 处理 proxy-groups ----
     BUILTINS = {"DIRECT", "REJECT", "REJECT-DROP", "PASS", "GLOBAL", "PROXY"}
 
-    groups_parts = re.split(r'\n(?=\s+- name:)', groups_section)
+    groups_parts = re.split(r"\n(?=\s+- name:)", groups_section)
     modified_parts = []
 
     for part in groups_parts:
@@ -153,20 +162,20 @@ def main():
         if not part:
             continue
 
-        m = re.search(r'^\s+-\s+name:\s*[\x27\x22]?([^\x27\x22,}\n]+)', part)
+        m = re.search(r"^\s+-\s+name:\s*[\x27\x22]?([^\x27\x22,}\n]+)", part)
         if not m:
             modified_parts.append(part)
             continue
         gname = m.group(1).strip()
 
-        ref_match = re.search(r'proxies:\n(\s+- .*(?:\n\s+- .*)*)', part)
+        ref_match = re.search(r"proxies:\n(\s+- .*(?:\n\s+- .*)*)", part)
         if not ref_match:
             modified_parts.append(part)
             continue
 
         refs_text = ref_match.group(1)
         ref_names = set()
-        for ref in re.finditer(r'^\s+-\s+(.+)$', refs_text, re.MULTILINE):
+        for ref in re.finditer(r"^\s+-\s+(.+)$", refs_text, re.MULTILINE):
             r = ref.group(1).strip().strip("'\"").strip(",")
             if r:
                 ref_names.add(r)
@@ -188,10 +197,10 @@ def main():
 
         if is_terminal:
             part = re.sub(
-                r'(proxies:\n)((?:\s+- .*\n?)*)',
+                r"(proxies:\n)((?:\s+- .*\n?)*)",
                 lambda m: m.group(1) + proxy_list_yaml + "\n    ",
                 part,
-                count=1
+                count=1,
             )
 
         modified_parts.append(part)
@@ -199,14 +208,17 @@ def main():
     new_groups_text = "\n".join(modified_parts)
 
     # ---- 9. 组装输出 ----
-    output = before_proxies + proxies_yaml_out + "\n" + new_groups_text + "\n" + after_rules
+    output = (
+        before_proxies + proxies_yaml_out + "\n" + new_groups_text + "\n" + after_rules
+    )
 
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         f.write(output)
 
     print(f"✅ 生成完成: {output_path}")
     print(f"   代理节点: {proxy_count} 个")
     print(f"   代理分组: {len(group_names)} 个")
+
 
 if __name__ == "__main__":
     main()

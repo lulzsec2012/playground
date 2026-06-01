@@ -1,0 +1,8 @@
+# 默认 Clash 订阅源（按稳定性排序）
+# 每行一个 URL
+# _fetch-clash 会逐行读取并下载
+https://raw.githubusercontent.com/hello-world-1989/cn-news/refs/heads/main/clash.yaml
+https://github.com/Au1rxx/free-vpn-subscriptions/raw/main/output/clash.yaml
+https://raw.githubusercontent.com/awesome-vpn/awesome-vpn/master/clash.yaml
+https://raw.githubusercontent.com/PuddinCat/BestClash/refs/heads/main/proxies.yaml
+https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/clash.yml

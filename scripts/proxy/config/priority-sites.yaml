@@ -1,0 +1,98 @@
+# Priority sites — 统一管理代理的重点保障站点
+#
+# 双用途:
+#   1. proxy-health: 读取 health_url 做连通性检测（回归报警）
+#   2. generate-config.py: 读取 route_groups 生成 sing-box 多组路由规则
+#
+# 单点添加: 只需在这里加一个新组，健康检查和路由规则会自动覆盖。
+
+# ── 健康检查站点 ──────────────────────────────────
+# proxy-health 通过这些 URL 检测代理连通性
+priority_sites:
+  - name: "Google"
+    url: "https://www.google.com/generate_204"
+  - name: "YouTube"
+    url: "https://www.youtube.com/generate_204"
+  - name: "GitHub"
+    url: "https://github.com"
+  - name: "OpenAI"
+    url: "https://www.openai.com"
+  - name: "Docker"
+    url: "https://www.docker.com"
+  - name: "HuggingFace"
+    url: "https://www.huggingface.co"
+
+# ── 路由分组 ─────────────────────────────────────
+# generate-config.py 据此生成 urltest + selector 出站 + 域名路由规则
+route_groups:
+  yt:
+    label: "YouTube"
+    test_url: "http://cp.cloudflare.com/generate_204"
+    domains:
+      - youtube.com
+      - googlevideo.com
+      - ytimg.com
+      - youtu.be
+      - ggpht.com
+      - withgoogle.com
+
+  gh:
+    label: "GitHub"
+    test_url: "http://cp.cloudflare.com/generate_204"
+    domains:
+      - github.com
+      - githubassets.com
+      - raw.githubusercontent.com
+      - githubusercontent.com
+      - github.io
+      - githubapp.com
+
+  tg:
+    label: "Telegram"
+    test_url: "http://cp.cloudflare.com/generate_204"
+    domains:
+      - t.me
+      - telegram.org
+      - telegram.me
+      - telesco.pe
+
+  ai:
+    label: "AI"
+    test_url: "http://cp.cloudflare.com/generate_204"
+    domains:
+      - openai.com
+      - chatgpt.com
+      - ai.com
+      - copilot.microsoft.com
+      - bing.com
+
+  gg:
+    label: "Google"
+    test_url: "http://cp.cloudflare.com/generate_204"
+    domains:
+      - google.com
+      - googleapis.com
+      - gstatic.com
+      - googleusercontent.com
+      - google-analytics.com
+      - googlesyndication.com
+      - doubleclick.net
+
+  docker:
+    label: "Docker Hub"
+    test_url: "http://cp.cloudflare.com/generate_204"
+    domains:
+      - docker.com
+      - docker.io
+      - hub.docker.com
+      - registry.docker.com
+      - registry-1.docker.io
+      - production.cloudflare.docker.com
+
+  hf:
+    label: "Hugging Face"
+    test_url: "http://cp.cloudflare.com/generate_204"
+    domains:
+      - huggingface.co
+      - hf.co
+      - hf.space
