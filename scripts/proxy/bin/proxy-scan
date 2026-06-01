@@ -90,7 +90,7 @@ info "[1/3] 扫描代理端口..."
 echo ""
 
 TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
+trap 'rm -rf "$TMPDIR"' EXIT
 
 scan_node() {
   local ip=$1 name=$2
@@ -104,7 +104,7 @@ while IFS= read -r line; do
   [ -z "$line" ] && continue
   ip=$(echo "$line" | awk '{print $1}')
   name=$(echo "$line" | awk '{print $2}')
-  ( scan_node "$ip" "$name" > "$TMPDIR/scan_$(echo $ip | tr '.' '_')" ) &
+  ( scan_node "$ip" "$name" > "$TMPDIR/scan_$(echo "$ip" | tr '.' '_')" ) &
   running=$((running + 1))
   [ $running -ge 6 ] && { wait -n 2>/dev/null || true; running=$((running - 1)); }
 done <<< "$TARGETS"
@@ -160,24 +160,23 @@ while IFS='|' read -r _ ip name port; do
     *)                        proxy_type="http" ;;
   esac
 
-  flag=""
+  curl_base=(-s --connect-timeout 3 --max-time 5 -o /dev/null -w "%{http_code}")
+  proxy_arg=()
   url_prefix=""
   if [ "$proxy_type" = "http" ]; then
-    flag="-x http://$ip:$port"
+    proxy_arg=(-x "http://$ip:$port")
     url_prefix="http"
   else
-    flag="--socks5 $ip:$port"
+    proxy_arg=(--socks5 "$ip:$port")
     url_prefix="socks5"
   fi
 
   # ---- 第一关: GitHub 可达 ----
-  gh_code=$(curl -s --connect-timeout 3 --max-time 5 $flag \
-    -o /dev/null -w "%{http_code}" "https://github.com" 2>/dev/null || true)
+  gh_code=$(curl "${curl_base[@]}" "${proxy_arg[@]}" "https://github.com" 2>/dev/null || true)
   [ "$gh_code" != "200" ] && continue
 
   # ---- 第二关: Google 可达 ----
-  gg_code=$(curl -s --connect-timeout 3 --max-time 5 $flag \
-    -o /dev/null -w "%{http_code}" "https://www.google.com" 2>/dev/null || true)
+  gg_code=$(curl "${curl_base[@]}" "${proxy_arg[@]}" "https://www.google.com" 2>/dev/null || true)
   [ "$gg_code" != "200" ] && { err "$name ($ip:$port) → $proxy_type 测试: GitHub ✅ Google ❌"; continue; }
 
   # ---- 第三关: Git clone 可用 ----

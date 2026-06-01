@@ -1,278 +1,324 @@
 #!/usr/bin/env bash
+# proxy-deploy — 一键部署代理服务（systemd + Docker 容器均支持）
+#
+# 支持:
+#   - systemd 环境: 注册系统服务，开机自启
+#   - Docker 容器:  创建 /etc/sing-box-start.sh 入口脚本
+#   - 自动生成 geoip/geosite 规则集
+#   - 自动下载 ChromeGo + Clash 订阅
+#   - 自动安装 cron（systemd 环境）
+#
+# 用法:
+#   proxy-deploy                              # 完整部署
+#   proxy-deploy --install-cron               # 只安装 cron
+#   proxy-deploy --remove-cron                # 移除 cron
+#   proxy-deploy --show-cron                  # 查看 cron 状态
+#   proxy-deploy -h                           # 帮助
+
 set -euo pipefail
 
-# ═══════════════════════════════════════════════════════════════════════
-# ChromeGo → sing-box 一键部署脚本
-# ═══════════════════════════════════════════════════════════════════════
-# 用法:
-#   proxy-deploy                              # 安装 sing-box + 生成配置 + 启动
-#   proxy-deploy --config-only                # 只生成配置文件
-#   proxy-deploy --configs /path/to/dir       # 指定配置目录
-#   proxy-deploy --port 1080                  # 自定义代理端口
-#   proxy-deploy --install-watch [分钟]        # 安装健康监控 cron（默认30分钟）
-#   proxy-deploy --remove-watch               # 移除健康监控 cron
-#   proxy-deploy --show-watch                 # 查看健康监控状态
-# ═══════════════════════════════════════════════════════════════════════
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=../lib/auto-proxy.sh
+source "$SCRIPT_DIR/lib/auto-proxy.sh"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIGS_DIR="${SCRIPT_DIR}/data/chromego_configs"
+CONFIGS_DIR="$SCRIPT_DIR/data/chromego_configs"
+CONFIG_JSON="$CONFIGS_DIR/config.json"
+YAML="$SCRIPT_DIR/data/config.yaml"
+GEN_PY="$SCRIPT_DIR/lib/generate-config.py"
 SINGBOX_BIN="${SINGBOX_BIN:-sing-box}"
-SINGBOX_CONFIG="${CONFIGS_DIR}/config.json"
+SERVICE_NAME="sing-box-chromego"
 PORT=1080
-DASHBOARD_PORT=9090
-CONFIG_ONLY=false
+LISTEN="${LISTEN:-0.0.0.0}"
+RULESET_DIR="/var/lib/sing-box/rule-set"
 
-# ── 参数解析 ──────────────────────────────────────────────────────────
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+info()  { echo -e "${CYAN}$*${NC}"; }
+ok()    { echo -e "  ${GREEN}✓${NC} $*"; }
+warn()  { echo -e "  ${YELLOW}⚠${NC} $*" >&2; }
+err()   { echo -e "  ${RED}✗${NC} $*" >&2; }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --config-only)    CONFIG_ONLY=true; shift ;;
-    --configs)        CONFIGS_DIR="$2"; shift 2 ;;
-    --port)           PORT="$2"; shift 2 ;;
-    --dashboard-port) DASHBOARD_PORT="$2"; shift 2 ;;
-    --install-watch)  WATCH_ACTION="install"; WATCH_INTERVAL="${2:-30}"; shift; [[ "$WATCH_INTERVAL" =~ ^[0-9]+$ ]] && shift || WATCH_INTERVAL="30" ;;
-    --remove-watch)   WATCH_ACTION="remove"; shift ;;
-    --show-watch)     WATCH_ACTION="show"; shift ;;
-    -h|--help)        head -26 "$0"; exit 0 ;;
-    *) echo "未知参数: $1"; exit 1 ;;
-  esac
-done
+CRON_CMD="*/30 * * * * cd $SCRIPT_DIR && bash bin/_update-sources >/dev/null 2>&1"
 
-# ── 颜色输出 ──────────────────────────────────────────────────────────
+# ═══════════════════════════════════════
+# 辅助函数
+# ═══════════════════════════════════════
 
-GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
-info()  { echo -e "${BLUE}ℹ${NC} $*"; }
-ok()    { echo -e "${GREEN}✓${NC} $*"; }
-warn()  { echo -e "${YELLOW}⚠${NC} $*"; }
-err()   { echo -e "${RED}✗${NC} $*" >&2; }
-
-# ═══════════════════════════════════════════════════════════════════════
-# 1. 生成配置
-# ═══════════════════════════════════════════════════════════════════════
-
-step_config() {
-  echo ""
-  info "=== [1/4] 生成 sing-box 配置 ==="
-
-  local gen_script="${SCRIPT_DIR}/lib/generate-config.py"
-  if [[ ! -f "$gen_script" ]]; then
-    err "未找到 ${gen_script}"
-    echo "请先运行 lib/source-chromego.sh 下载 ChromeGo 源"
-    exit 1
+install_cron() {
+  if crontab -l 2>/dev/null | grep -qF "bin/_update-sources"; then
+    ok "cron 已存在"; return
   fi
-
-  python3 "$gen_script" \
-    --configs "$CONFIGS_DIR" \
-    --output "$SINGBOX_CONFIG"
-
-  # 替换端口为用户指定值
-  if [[ "$PORT" != "1080" ]]; then
-    sed -i "s/\"listen_port\": 1080/\"listen_port\": $PORT/" "$SINGBOX_CONFIG"
-  fi
-  if [[ "$DASHBOARD_PORT" != "9090" ]]; then
-    sed -i "s/\"external_controller\": \"127.0.0.1:9090\"/\"external_controller\": \"127.0.0.1:$DASHBOARD_PORT\"/" "$SINGBOX_CONFIG"
-  fi
-
-  ok "配置文件: ${SINGBOX_CONFIG}"
+  (crontab -l 2>/dev/null || true; echo "$CRON_CMD") | crontab -
+  ok "cron 已安装"
 }
 
-# ═══════════════════════════════════════════════════════════════════════
-# 2. 安装 sing-box
-# ═══════════════════════════════════════════════════════════════════════
+remove_cron() {
+  crontab -l 2>/dev/null | grep -vF "bin/_update-sources" | crontab - || true
+  ok "cron 已移除"
+}
 
-step_install() {
-  echo ""
-  info "=== [2/4] 安装 sing-box ==="
-
-  if command -v sing-box &>/dev/null; then
-    local ver
-    ver=$(sing-box version 2>/dev/null | head -1 || echo "已安装")
-    ok "sing-box ${ver}"
-    return
-  fi
-
-  # GitHub 最新版本
-  info "下载 sing-box 最新版本..."
-
-  local arch
-  arch=$(uname -m)
-  case "$arch" in
-    x86_64)   arch="amd64" ;;
-    aarch64)  arch="arm64" ;;
-    armv7l)   arch="armv7" ;;
-    *)        err "不支持的架构: $arch"; exit 1 ;;
-  esac
-
-  local tmpdir
-  tmpdir=$(mktemp -d)
-  cd "$tmpdir"
-
-  # 获取最新 release 下载链接
-  local download_url
-  download_url=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest \
-    | grep "browser_download_url" \
-    | grep "linux-${arch}" \
-    | grep -v "go120" \
-    | head -1 \
-    | cut -d'"' -f4)
-
-  if [[ -z "$download_url" ]]; then
-    err "无法获取下载链接"
-    exit 1
-  fi
-
-  info "下载: ${download_url}"
-  curl -L -o sing-box.tar.gz "$download_url"
-  tar -xzf sing-box.tar.gz
-  sudo mv sing-box*/sing-box /usr/local/bin/
-  rm -rf "$tmpdir"
-
-  if command -v sing-box &>/dev/null; then
-    ok "sing-box $(sing-box version 2>/dev/null | head -1) 已安装到 /usr/local/bin/"
+show_cron() {
+  if crontab -l 2>/dev/null | grep -qF "bin/_update-sources"; then
+    echo "cron: 已安装"; crontab -l 2>/dev/null | grep "bin/_update-sources"
   else
-    err "安装失败"
+    echo "cron: 未安装"
+  fi
+}
+
+count_nodes() {
+  [ -f "$CONFIG_JSON" ] || { echo 0; return; }
+  python3 -c "
+import json
+try:
+    c = json.load(open('$CONFIG_JSON'))
+    out = c.get('outbounds', [])
+    nodes = [o for o in out if isinstance(o, dict) and o.get('type') in ('vless','vmess','trojan','ss','hysteria','hysteria2','tuic','direct')]
+    print(len(nodes))
+except: print(0)
+" 2>/dev/null || echo 0
+}
+
+# ═══════════════════════════════════════
+# Step 1: 前置检测
+# ═══════════════════════════════════════
+
+check_prereqs() {
+  command -v python3 &>/dev/null || { err "需要 python3"; exit 1; }
+  command -v curl &>/dev/null    || { err "需要 curl";   exit 1; }
+  mkdir -p "$CONFIGS_DIR" "$RULESET_DIR"
+}
+
+install_singbox() {
+  command -v "$SINGBOX_BIN" &>/dev/null && { ok "sing-box 已安装: $($SINGBOX_BIN version 2>&1 | head -1)"; return 0; }
+  # 从官方脚本安装（适用于 systemd 和 Docker）
+  info "安装 sing-box..."
+  curl -fsSL https://sing-box.app/g.sh | bash -s -- -y 2>/dev/null || true
+  if command -v "$SINGBOX_BIN" &>/dev/null; then
+    ok "sing-box 已安装: $($SINGBOX_BIN version 2>&1 | head -1)"
+  else
+    err "sing-box 安装失败，请手动安装"
     exit 1
   fi
 }
 
-# ═══════════════════════════════════════════════════════════════════════
-# 3. 配置 systemd 服务
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════
+# Step 2: 规则集
+# ═══════════════════════════════════════
 
-step_service() {
-  echo ""
-  info "=== [3/4] 配置 systemd 服务 ==="
+setup_rulesets() {
+  [ -f "$RULESET_DIR/geoip-cn.srs" ] && [ -f "$RULESET_DIR/geosite-cn.srs" ] && {
+    ok "规则集已存在"; return 0
+  }
 
-  # 检查 systemd
-  if ! command -v systemctl &>/dev/null; then
-    warn "无 systemd，跳过服务配置"
-    warn "手动启动: sing-box run -c ${SINGBOX_CONFIG}"
-    return
+  info "下载 geoip 数据库..."
+  local geoip_db="/tmp/geoip.db" geosite_db="/tmp/geosite.db"
+  curl -fsSL -o "$geoip_db" "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db" || {
+    warn "geoip.db 下载失败"; return 1
+  }
+  info "下载 geosite 数据库..."
+  curl -fsSL -o "$geosite_db" "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db" || {
+    warn "geosite.db 下载失败"; return 1
+  }
+
+  info "导出规则集..."
+  "$SINGBOX_BIN" -f "$geoip_db" geoip export cn -o "$RULESET_DIR/geoip-cn.srs" 2>/dev/null
+  "$SINGBOX_BIN" geosite export cn -f "$geosite_db" -o "$RULESET_DIR/geosite-cn.srs" 2>/dev/null
+  rm -f "$geoip_db" "$geosite_db"
+
+  if [ -f "$RULESET_DIR/geoip-cn.srs" ] && [ -f "$RULESET_DIR/geosite-cn.srs" ]; then
+    ok "规则集已生成 ($(du -sh "$RULESET_DIR" | cut -f1))"
+  else
+    warn "规则集生成失败，可能影响国内分流"
+  fi
+  return 0
+}
+
+# ═══════════════════════════════════════
+# Step 3: 下载 & 生成配置
+# ═══════════════════════════════════════
+
+generate_config() {
+  info "下载 ChromeGo 源..."
+  bash "$SCRIPT_DIR/lib/source-chromego.sh" 2>&1 | tail -3 || true
+
+  info "下载 Clash 源..."
+  bash "$SCRIPT_DIR/bin/_fetch-clash" 2>&1 | tail -3 || true
+
+  info "生成 sing-box 配置..."
+  local py="$GEN_PY"
+  if [ -f "$YAML" ]; then
+    python3 "$py" --proxy-yaml "$YAML" --configs "$CONFIGS_DIR" \
+      --output "$CONFIG_JSON" --listen "$LISTEN" --port "$PORT" || {
+      python3 "$py" --configs "$CONFIGS_DIR" --output "$CONFIG_JSON" \
+        --listen "$LISTEN" --port "$PORT" || true
+    }
+  else
+    python3 "$py" --configs "$CONFIGS_DIR" --output "$CONFIG_JSON" \
+      --listen "$LISTEN" --port "$PORT" || true
   fi
 
-  local unit_name="sing-box-chromego"
-  local unit_file="/etc/systemd/system/${unit_name}.service"
-
-  if [[ -f "$unit_file" ]]; then
-    ok "服务单元已存在: ${unit_name}"
+  local n
+  n="$(count_nodes)"
+  if [ "$n" -gt 0 ]; then
+    ok "配置生成完成，节点数: $n"
   else
-    info "创建 systemd 服务单元..."
+    warn "配置无可用节点（首次部署正常，下次 cron 会重试）"
+  fi
+}
 
-    # 创建运行用户（如果不存在）
-    if ! id -u sing-box &>/dev/null 2>&1; then
-      sudo useradd -r -s /usr/sbin/nologin sing-box 2>/dev/null || true
-    fi
+# ═══════════════════════════════════════
+# Step 4: 启动服务
+# ═══════════════════════════════════════
 
-    sudo tee "$unit_file" > /dev/null <<EOF
+start_service() {
+  [ -f "$CONFIG_JSON" ] || { warn "配置不存在，跳过启动"; return 1; }
+
+  if command -v systemctl &>/dev/null && [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ]; then
+    # ── systemd 环境 ──
+    local service_file="/etc/systemd/system/${SERVICE_NAME}.service"
+    if [ ! -f "$service_file" ]; then
+      info "创建 systemd service..."
+      sudo tee "$service_file" >/dev/null <<SERVICE
 [Unit]
-Description=ChromeGo sing-box Proxy
-Documentation=https://sing-box.sagernet.org
+Description=Proxy Service (sing-box)
 After=network.target
 
 [Service]
 Type=simple
-User=sing-box
-ExecStart=${SINGBOX_BIN} run -c ${SINGBOX_CONFIG}
+ExecStart=$SINGBOX_BIN run -c $CONFIG_JSON
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
-EOF
-
-    sudo systemctl daemon-reload
-    ok "服务单元已创建: ${unit_name}"
-  fi
-
-  info "启动服务..."
-  sudo systemctl enable "${unit_name}" 2>/dev/null || true
-  sudo systemctl restart "${unit_name}" 2>/dev/null || true
-  sleep 2
-
-  if sudo systemctl is-active --quiet "${unit_name}"; then
-    ok "sing-box 服务运行中"
+SERVICE
+      sudo systemctl daemon-reload
+      sudo systemctl enable "$SERVICE_NAME"
+    fi
+    # 停止旧进程后重启（避免端口冲突）
+    sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    sleep 1
+    sudo systemctl start "$SERVICE_NAME" || {
+      warn "systemctl 启动失败，尝试直接启动..."
+      direct_start
+      return
+    }
+    ok "sing-box systemd 服务已启动"
   else
-    warn "服务启动异常，查看日志: sudo journalctl -u ${unit_name} -n 50 --no-pager"
+    # ── 非 systemd 环境（Docker 容器等） ──
+    direct_start
   fi
 }
 
-# ═══════════════════════════════════════════════════════════════════════
-# 4. 输出信息
-# ═══════════════════════════════════════════════════════════════════════
+direct_start() {
+  # 停掉旧的 sing-box 进程
+  pkill sing-box 2>/dev/null || true
+  for _ in 1 2 3 4 5; do
+    pgrep sing-box >/dev/null 2>&1 || break
+    sleep 1
+  done
 
-step_info() {
-  echo ""
-  info "=== [4/4] 部署信息 ==="
-
-  local count
-  count=$(python3 -c "
-import json
-c = json.load(open('${SINGBOX_CONFIG}'))
-proxies = [ob for ob in c['outbounds']
-           if ob['type'] not in ('selector','urltest','direct')]
-print(len(proxies))
-" 2>/dev/null || echo "?")
-
-  echo ""
-  echo "  代理端口:     ${BLUE}socks5+http :${PORT}${NC}"
-  echo "  Dashboard:    ${BLUE}http://127.0.0.1:${DASHBOARD_PORT}/ui${NC}"
-  echo "  代理节点:     ${count} 个"
-  echo "  配置文件:     ${SINGBOX_CONFIG}"
-  echo ""
-  echo "  常用命令:"
-  echo "    启动:         sing-box run -c ${SINGBOX_CONFIG}"
-  echo "    检查配置:     sing-box check -c ${SINGBOX_CONFIG}"
-  echo "    查看日志:     sudo journalctl -u sing-box-chromego -f"
-  echo ""
-  echo "  测试代理:"
-  echo "    curl --proxy socks5://127.0.0.1:${PORT} http://cp.cloudflare.com/generate_204"
-  echo "    curl --proxy http://127.0.0.1:${PORT} https://www.google.com"
-  echo ""
+  nohup "$SINGBOX_BIN" run -c "$CONFIG_JSON" >/tmp/singbox.log 2>&1 &
+  local pid=$!
+  sleep 3
+  if kill -0 "$pid" 2>/dev/null; then
+    ok "sing-box 已启动 (PID $pid)"
+  else
+    err "sing-box 启动失败，日志:"
+    tail -5 /tmp/singbox.log 2>/dev/null || true
+    return 1
+  fi
 }
 
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════
+# Step 5: 容器自动启动（Docker 环境）
+# ═══════════════════════════════════════
+
+setup_docker_autostart() {
+  # 检查是否在 Docker 容器内（没有 systemd 但有 /.dockerenv）
+  [ -f "/.dockerenv" ] || return 0
+
+  local start_script="/etc/sing-box-start.sh"
+  if [ -f "$start_script" ]; then
+    ok "容器启动脚本已存在"
+    return 0
+  fi
+
+  info "创建容器启动脚本..."
+  cat > "$start_script" <<SCRIPT
+#!/usr/bin/env bash
+# 容器启动时自动启动 sing-box
+[ -f "$CONFIG_JSON" ] || exit 0
+nohup $SINGBOX_BIN run -c $CONFIG_JSON >/tmp/singbox.log 2>&1 &
+SCRIPT
+  chmod +x "$start_script"
+
+  # 注入到 .bashrc 或 profile（容器 SSH 登录时触发）
+  local injected=false
+  for rc in /root/.bashrc /home/*/.bashrc; do
+    [ -f "$rc" ] || continue
+    if ! grep -qF "sing-box-start" "$rc" 2>/dev/null; then
+      echo "[ -x /etc/sing-box-start.sh ] && /etc/sing-box-start.sh 2>/dev/null || true" >> "$rc"
+      injected=true
+    fi
+  done
+  if [ "$injected" = true ]; then
+    ok "容器自动启动已配置"
+  else
+    ok "容器启动脚本已创建"
+  fi
+}
+
+# ═══════════════════════════════════════
 # Main
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════
 
 main() {
-  case "${WATCH_ACTION:-}" in
-    install)
-      local watch_script="${SCRIPT_DIR}/bin/proxy-health"
-      if [ ! -f "$watch_script" ]; then
-        err "未找到 ${watch_script}"
-        exit 1
-      fi
-      bash "$watch_script" --install-cron "$WATCH_INTERVAL"
-      ok "健康监控已安装（每 ${WATCH_INTERVAL} 分钟检查一次）"
-      exit 0
-      ;;
-    remove)
-      bash "${SCRIPT_DIR}/bin/proxy-health" --remove-cron
-      ok "健康监控已移除"
-      exit 0
-      ;;
-    show)
-      bash "${SCRIPT_DIR}/bin/proxy-health" --show-cron
-      bash "${SCRIPT_DIR}/bin/proxy-health" --status 2>/dev/null || true
-      exit 0
-      ;;
+  case "${1:-}" in
+    -h|--help) head -15 "$0"; exit 0 ;;
+    --install-cron) install_cron; exit 0 ;;
+    --remove-cron) remove_cron; exit 0 ;;
+    --show-cron) show_cron; exit 0 ;;
   esac
 
-  echo "╔══════════════════════════════════════════════════╗"
-  echo "║   ChromeGo → sing-box 一键部署                   ║"
-  echo "╚══════════════════════════════════════════════════╝"
+  echo ""
+  echo "══════════════════════════════════════"
+  info "  proxy-deploy — 一键部署"
+  echo "══════════════════════════════════════"
+  echo ""
 
-  step_config
-  if $CONFIG_ONLY; then
-    echo ""
-    ok "配置生成完成（--config-only，跳过安装/部署）"
-    exit 0
+  check_prereqs
+
+  echo "[1/5] 检测 sing-box..."
+  install_singbox
+
+  echo ""
+  echo "[2/5] 准备 geoip/geosite 规则集..."
+  setup_rulesets
+
+  echo ""
+  echo "[3/5] 下载订阅源 & 生成配置..."
+  generate_config
+
+  echo ""
+  echo "[4/5] 启动服务..."
+  start_service
+
+  echo ""
+  echo "[5/5] 配置自动启动..."
+  setup_docker_autostart
+
+  # 仅在 systemd 环境安装 cron
+  if command -v systemctl &>/dev/null && [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ]; then
+    install_cron
   fi
 
-  step_install
-  step_service
-  step_info
+  echo ""
+  ok "部署完成"
+  info "  连接: socks5h://127.0.0.1:${PORT}"
+  info "  Dashboard: http://${LISTEN}:9090/ui"
+  info "  测试: proxy-test"
+  info "  添加订阅: proxy-sub <url>"
 }
 
-main
+main "$@"

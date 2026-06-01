@@ -1,0 +1,463 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ═══════════════════════════════════════════════════════════════════════
+# proxy-health-watch.sh — 代理健康监控 + 自动更新
+# ═══════════════════════════════════════════════════════════════════════
+#
+# 功能:
+#   短周期运行，测试主要网站的代理连通性。
+#   如果之前能打开的网站现在打不开了（回归），触发源更新 + 重新部署。
+#
+# 用法:
+#   bash proxy-health-watch.sh                    # 健康检查，必要时更新
+#   bash proxy-health-watch.sh --status           # 查看当前健康状态
+#   bash proxy-health-watch.sh --reset-baseline   # 重置基线（当前状态作为正常）
+#   bash proxy-health-watch.sh --install-cron     # 安装 cron（每 30 分钟）
+#   bash proxy-health-watch.sh --remove-cron      # 移除 cron
+#   bash proxy-health-watch.sh --show-cron        # 查看 cron 状态
+#
+# 行为:
+#   1. 通过 SOCKS5 代理测试一系列主要网站
+#   2. 将结果保存为基线文件（记录每个站点的通过状态）
+#   3. 对比本次结果与基线：
+#      - 如果有网站从 OK → FAIL → 触发完整更新流程
+#      - 如果全部 OK → 不做任何事
+#   4. 更新流程：_fetch-clash → generate-config.py → verify → restart
+#   5. 更新成功后重新测试，更新基线
+# ═══════════════════════════════════════════════════════════════════════
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+CONFIGS_DIR="${SCRIPT_DIR}/data/chromego_configs"
+SINGBOX_CONFIG="${CONFIGS_DIR}/config.json"
+SINGBOX_BIN="${SINGBOX_BIN:-sing-box}"
+PROXY="${PROXY:-socks5://127.0.0.1:1080}"
+BASELINE_FILE="/tmp/proxy-health-baseline.json"
+LOG_DIR="${SCRIPT_DIR}/data/chromego_logs"
+LOG_FILE="${LOG_DIR}/health-watch.log"
+
+# 这里只检测"核心被墙网站"——这些通了就说明代理正常工作
+# Google 和 YouTube 是最敏感的指标
+SITES=(
+  "Google:https://www.google.com/generate_204"
+  "YouTube:https://www.youtube.com/generate_204"
+  "GitHub:https://github.com"
+  "OpenAI:https://www.openai.com"
+  "Docker:https://www.docker.com"
+)
+
+# ── 颜色 ──
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+info()  { echo -e "${CYAN}$*${NC}"; }
+ok()    { echo -e "  ${GREEN}✓${NC} $*"; }
+warn()  { echo -e "  ${YELLOW}⚠${NC} $*" >&2; }
+err()   { echo -e "  ${RED}✗${NC} $*" >&2; }
+
+# ──────────────────────────────────────────────
+# 日志
+# ──────────────────────────────────────────────
+
+log() {
+  mkdir -p "$LOG_DIR"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
+}
+
+# ──────────────────────────────────────────────
+# 测试单个站点
+# ──────────────────────────────────────────────
+
+test_site() {
+  local label="$1"
+  local url="$2"
+  local proxy="$3"
+  local timeout="${4:-10}"
+
+  local http_code
+  http_code=$(curl -s --max-time "$timeout" --proxy "$proxy" \
+    -o /dev/null -w '%{http_code}' \
+    --connect-timeout 8 "$url" 2>/dev/null || echo "000")
+
+  # 2xx/3xx 算成功
+  if [[ "$http_code" =~ ^[23][0-9][0-9]$ ]]; then
+    echo "OK:${http_code}"
+  else
+    echo "FAIL:${http_code}"
+  fi
+}
+
+# ──────────────────────────────────────────────
+# 健康检查
+# ──────────────────────────────────────────────
+
+run_health_check() {
+  local proxy="${1:-$PROXY}"
+
+  echo ""
+  info "══════════════════════════════════════"
+  info "  代理健康检查"
+  info "══════════════════════════════════════"
+  echo ""
+
+  local results="{}"
+  local all_ok=true
+  local first=true
+
+  for entry in "${SITES[@]}"; do
+    local label="${entry%%:*}"
+    local url="${entry#*:}"
+
+    printf "  %-12s " "$label"
+    local result
+    result=$(test_site "$label" "$url" "$proxy")
+    local status="${result%%:*}"
+    local code="${result#*:}"
+
+    if [ "$status" = "OK" ]; then
+      echo -e "  ${GREEN}✔${NC} HTTP ${code}"
+    else
+      echo -e "  ${RED}✘${NC} HTTP ${code}"
+      all_ok=false
+    fi
+
+    # 构建 JSON
+    if [ "$first" = true ]; then
+      results="{\"$label\": \"$status\""
+      first=false
+    else
+      results="${results}, \"$label\": \"$status\""
+    fi
+  done
+
+  results="${results}}"
+  echo "$results"
+  echo ""
+
+  if [ "$all_ok" = true ]; then
+    echo "  状态: ${GREEN}全部正常${NC}"
+    return 0
+  else
+    echo "  状态: ${RED}部分异常${NC}"
+    return 1
+  fi
+}
+
+# ──────────────────────────────────────────────
+# 读取/写入基线
+# ──────────────────────────────────────────────
+
+read_baseline() {
+  if [ -f "$BASELINE_FILE" ]; then
+    cat "$BASELINE_FILE"
+  else
+    echo "{}"
+  fi
+}
+
+write_baseline() {
+  local results_json="$1"
+  echo "$results_json" > "$BASELINE_FILE"
+  ok "基线已更新"
+}
+
+# ──────────────────────────────────────────────
+# 检测回归（OK → FAIL）
+# ──────────────────────────────────────────────
+
+detect_regression() {
+  local current="$1"
+  local baseline="$2"
+
+  # 如果没有基线（首次运行），不算回归
+  if [ "$baseline" = "{}" ] || [ ! -f "$BASELINE_FILE" ]; then
+    return 1  # 未检测到回归
+  fi
+
+  local has_regression=false
+  local details=""
+
+  for entry in "${SITES[@]}"; do
+    local label="${entry%%:*}"
+
+    local current_status
+    current_status=$(echo "$current" | python3 -c "
+import sys, json
+try:
+    d = json.loads('$current')
+    print(d.get('$label', 'FAIL'))
+except: print('FAIL')
+" 2>/dev/null || echo "FAIL")
+
+    local baseline_status
+    baseline_status=$(echo "$baseline" | python3 -c "
+import sys, json
+try:
+    d = json.loads('$baseline')
+    print(d.get('$label', 'FAIL'))
+except: print('FAIL')
+" 2>/dev/null || echo "FAIL")
+
+    if [ "$baseline_status" = "OK" ] && [ "$current_status" = "FAIL" ]; then
+      has_regression=true
+      details="${details}  ${label}: ${baseline_status} → ${current_status}\n"
+    fi
+  done
+
+  if [ "$has_regression" = true ]; then
+    echo -e "$details"
+    return 0  # 检测到回归
+  fi
+
+  return 1  # 未检测到回归
+}
+
+# ──────────────────────────────────────────────
+# 完整更新流程
+# ──────────────────────────────────────────────
+
+do_update() {
+  echo ""
+  info "══════════════════════════════════════"
+  info "  开始更新代理配置"
+  info "══════════════════════════════════════"
+  echo ""
+
+  # ── 1. 下载 GitHub 订阅源 ──
+  info "=== [1/3] 下载订阅源 ==="
+  local fetch_output="${SCRIPT_DIR}/data/config.yaml"
+    if ! PROXY="$PROXY" bash "${SCRIPT_DIR}/bin/_fetch-clash" > /dev/null 2>&1; then
+        err "_fetch-clash 下载失败"
+    return 1
+  fi
+  ok "GitHub 订阅源下载完成（节点: $(grep -c '^- name:' "$fetch_output" 2>/dev/null || echo 0)）"
+
+  # ── 2. 下载原生协议配置（可能失败，非致命） ──
+  info "=== [2/3] 下载 ChromeGo 协议配置 ==="
+  if bash "${SCRIPT_DIR}/lib/source-chromego.sh" "$CONFIGS_DIR" > /dev/null 2>&1; then
+    ok "ChromeGo 源下载完成"
+  else
+    warn "ChromeGo 源下载失败（从 GitHub 订阅源继续）"
+  fi
+
+  # ── 3. 生成 sing-box 配置 ──
+  info "=== [3/3] 生成 sing-box 配置 ==="
+  local gen_args=()
+  gen_args+=(--configs "${CONFIGS_DIR}" --output "${SINGBOX_CONFIG}")
+  if [ -f "$fetch_output" ] && [ "$(grep -c '^- name:' "$fetch_output" 2>/dev/null || echo 0)" -gt 0 ]; then
+    gen_args+=(--proxy-yaml "${fetch_output}")
+  fi
+
+  if ! python3 "${SCRIPT_DIR}/lib/generate-config.py" "${gen_args[@]}" > /dev/null 2>&1; then
+    err "配置生成失败"
+    return 1
+  fi
+  ok "配置已生成: ${SINGBOX_CONFIG}"
+
+  # ── 4. 验证配置 ──
+  info "=== 验证配置 ==="
+  if ! "$SINGBOX_BIN" check -c "$SINGBOX_CONFIG" > /dev/null 2>&1; then
+    err "新配置验证失败！"
+    "$SINGBOX_BIN" check -c "$SINGBOX_CONFIG" 2>&1 | head -5
+    return 1
+  fi
+  ok "配置验证通过"
+
+  # ── 5. 重启 sing-box ──
+  info "=== 重启 sing-box ==="
+  if command -v systemctl &>/dev/null && systemctl is-active sing-box-chromego &>/dev/null 2>&1; then
+    sudo systemctl restart sing-box-chromego
+    sleep 3
+    if systemctl is-active --quiet sing-box-chromego; then
+      ok "sing-box 服务已重启"
+    else
+      warn "服务重启异常，查看日志: journalctl -u sing-box-chromego -n 30"
+    fi
+  else
+    # 无 systemd，通过进程管理
+    if pgrep -x "sing-box" > /dev/null 2>&1; then
+      sudo pkill -x "sing-box" 2>/dev/null || true
+      sleep 2
+    fi
+    nohup sudo "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG" > /tmp/sing-box.log 2>&1 &
+    sleep 3
+    if pgrep -x "sing-box" > /dev/null 2>&1; then
+      ok "sing-box 已重启（PID: $(pgrep -x sing-box)）"
+    else
+      err "sing-box 启动失败，检查日志: /tmp/sing-box.log"
+      return 1
+    fi
+  fi
+
+  log "更新完成: 配置已替换，服务已重启"
+  ok "更新完成"
+  return 0
+}
+
+# ──────────────────────────────────────────────
+# 主流程
+# ──────────────────────────────────────────────
+
+main() {
+  case "${1:-}" in
+    --status)
+      echo "=== 健康状态 ==="
+      if [ -f "$BASELINE_FILE" ]; then
+        local baseline
+        baseline=$(cat "$BASELINE_FILE")
+        echo "$baseline" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for site, status in sorted(d.items()):
+    icon = '✅' if status == 'OK' else '❌'
+    print(f'  {icon} {site}: {status}')
+" 2>/dev/null
+        echo ""
+        echo "基线文件: $BASELINE_FILE"
+        echo "最后更新: $(stat -c '%y' "$BASELINE_FILE" 2>/dev/null || stat -f '%Sm' "$BASELINE_FILE" 2>/dev/null)"
+      else
+        echo "  未建立基线（尚未运行过健康检查）"
+      fi
+      return 0
+      ;;
+    --reset-baseline)
+      rm -f "$BASELINE_FILE"
+      ok "基线已重置，下次运行将重新建立基线"
+      return 0
+      ;;
+    --install-cron)
+      local raw_interval="${2:-30}"
+      # 如果是纯数字（如 30），自动转为 */30
+      if [[ "$raw_interval" =~ ^[0-9]+$ ]]; then
+        local interval="*/${raw_interval}"
+      else
+        local interval="$raw_interval"
+      fi
+      if crontab -l 2>/dev/null | grep -qF "bin/proxy-health"; then
+        ok "cron 已存在，跳过"
+        crontab -l 2>/dev/null | grep "bin/proxy-health"
+        return 0
+      fi
+      local cron_line="${interval} * * * * cd ${SCRIPT_DIR} && bash bin/proxy-health >/dev/null 2>&1"
+      (crontab -l 2>/dev/null || true; echo "$cron_line") | crontab -
+      ok "cron 已安装：每 ${raw_interval} 分钟执行健康检查"
+      return 0
+      ;;
+    --remove-cron)
+      crontab -l 2>/dev/null | grep -vF "bin/proxy-health" | crontab - || true
+      ok "cron 已移除"
+      return 0
+      ;;
+    --show-cron)
+      if crontab -l 2>/dev/null | grep -qF "bin/proxy-health"; then
+        echo "cron 状态: 已安装"
+        crontab -l 2>/dev/null | grep "bin/proxy-health"
+      else
+        echo "cron 状态: 未安装"
+      fi
+      return 0
+      ;;
+    -h|--help)
+      head -30 "$0"
+      exit 0
+      ;;
+  esac
+
+  log "健康检查开始"
+
+  # ── 1. 检查 sing-box 是否在运行 ──
+  if ! pgrep -x "sing-box" > /dev/null 2>&1; then
+    warn "sing-box 未运行，尝试启动..."
+    if [ -f "$SINGBOX_CONFIG" ]; then
+      nohup sudo "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG" > /tmp/sing-box.log 2>&1 &
+      sleep 3
+      if pgrep -x "sing-box" > /dev/null 2>&1; then
+        ok "sing-box 已启动"
+        log "sing-box 已启动"
+      else
+        err "sing-box 启动失败，跳过本次检查"
+        log "失败: sing-box 启动失败"
+        return 1
+      fi
+    else
+      err "配置文件不存在: ${SINGBOX_CONFIG}，跳过检查"
+      log "失败: 配置文件不存在"
+      return 1
+    fi
+  fi
+
+  # ── 2. 运行健康检查 ──
+  local current_results
+  current_results=$(run_health_check)
+  local health_exit_code=$?
+
+  # ── 3. 读取基线 ──
+  local baseline
+  baseline=$(read_baseline)
+
+  # ── 4. 如果没有基线，直接保存当前结果作为基线 ──
+  if [ "$baseline" = "{}" ] || [ ! -f "$BASELINE_FILE" ]; then
+    info "首次运行，建立基线..."
+    write_baseline "$current_results"
+    log "基线已建立"
+    if [ $health_exit_code -eq 0 ]; then
+      ok "代理正常工作，基线已保存"
+    else
+      warn "部分站点不可达，已记录基线"
+    fi
+    return 0
+  fi
+
+  # ── 5. 检测回归 ──
+  local regression_details
+  regression_details=$(detect_regression "$current_results" "$baseline" || true)
+  local regression_exit=$?
+
+  if [ $regression_exit -eq 0 ]; then
+    warn "检测到服务回归！以下站点从正常变为不可用："
+    echo -e "$regression_details"
+    log "检测到回归"
+    log "回归详情: $(echo "$regression_details" | tr -d '\n')"
+
+    echo ""
+    info "触发自动更新..."
+    if do_update; then
+      log "更新成功"
+      echo ""
+      info "更新后重新测试..."
+
+      # 等待 sing-box 稳定并跑一轮 urltest
+      sleep 10
+
+      local post_results
+      post_results=$(run_health_check) || true
+
+      # 更新基线
+      write_baseline "$post_results"
+      log "基线已更新"
+
+      # 检查更新后是否恢复
+      if echo "$post_results" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(all(v == 'OK' for v in d.values()))
+" 2>/dev/null | grep -q "True"; then
+        ok "更新成功，代理已恢复"
+      else
+        warn "更新后仍有部分站点不可用"
+      fi
+    else
+      err "自动更新失败！"
+      log "更新失败"
+      # 更新失败，不更新基线，下次继续触发
+    fi
+  else
+    # 没有回归 — 如果全部 OK，不做任何事
+    if [ $health_exit_code -eq 0 ]; then
+      ok "代理正常，无需更新"
+    else
+      warn "部分站点不可用（与基线一致，非新增回归），跳过更新"
+    fi
+    log "健康检查完成: 未检测到回归"
+  fi
+}
+
+main "$@"

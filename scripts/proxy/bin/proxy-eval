@@ -31,8 +31,8 @@ HEALTH_TARGETS = {
 }
 SPEED_URL = "https://cp.cloudflare.com/generate_204"
 
-HEALTH_TIMEOUT_MS = 5000   # 5s per health check
-SPEED_TIMEOUT_MS = 5000    # 5s for speed test
+HEALTH_TIMEOUT_MS = 5000  # 5s per health check
+SPEED_TIMEOUT_MS = 5000  # 5s for speed test
 
 
 def _clash_get(path):
@@ -57,8 +57,15 @@ def _node_delay(name, url, timeout_ms):
 
 def _test_node(name):
     """Run multi-site health check + speed test. Returns dict with results."""
-    result = {"name": name, "healthy": False, "github_ms": -1, "youtube_ms": -1,
-              "speed_ms": -1, "speed_ok": False, "all_ok": False}
+    result = {
+        "name": name,
+        "healthy": False,
+        "github_ms": -1,
+        "youtube_ms": -1,
+        "speed_ms": -1,
+        "speed_ok": False,
+        "all_ok": False,
+    }
 
     # Phase 1: GitHub health gate
     result["github_ms"] = _node_delay(name, HEALTH_TARGETS["github"], HEALTH_TIMEOUT_MS)
@@ -66,7 +73,9 @@ def _test_node(name):
         return result
 
     # Phase 2: YouTube health gate
-    result["youtube_ms"] = _node_delay(name, HEALTH_TARGETS["youtube"], HEALTH_TIMEOUT_MS)
+    result["youtube_ms"] = _node_delay(
+        name, HEALTH_TARGETS["youtube"], HEALTH_TIMEOUT_MS
+    )
     if result["youtube_ms"] < 0:
         result["healthy"] = True  # passed GitHub
         return result
@@ -92,7 +101,9 @@ def _auto_select(nodes, mode):
             print("\n  ❌ 没有健康节点 (能连 GitHub 的)")
             return 1
         # Among healthy nodes, pick the one with lowest Cloudflare latency
-        best = min(candidates, key=lambda n: (n["speed_ms"] if n["speed_ms"] >= 0 else 99999))
+        best = min(
+            candidates, key=lambda n: (n["speed_ms"] if n["speed_ms"] >= 0 else 99999)
+        )
     elif mode == "fastest":
         candidates = [n for n in nodes if n["speed_ok"]]
         if not candidates:
@@ -104,19 +115,26 @@ def _auto_select(nodes, mode):
         if not candidates:
             print("\n  ❌ 没有节点能同时连通 GitHub + YouTube")
             return 1
-        best = min(candidates, key=lambda n: (n["speed_ms"] if n["speed_ms"] >= 0 else 99999))
+        best = min(
+            candidates, key=lambda n: (n["speed_ms"] if n["speed_ms"] >= 0 else 99999)
+        )
     else:
         print(f"\n  ❌ 未知的 auto-select 模式: {mode}")
         return 1
 
     name = best["name"]
-    print(f"\n  → 自动切换到: {name} (GitHub={best['github_ms']}ms, "
-          f"YouTube={best['youtube_ms']}ms, Cloudflare={best['speed_ms']}ms)")
+    print(
+        f"\n  → 自动切换到: {name} (GitHub={best['github_ms']}ms, "
+        f"YouTube={best['youtube_ms']}ms, Cloudflare={best['speed_ms']}ms)"
+    )
 
     data = json.dumps({"name": name}).encode()
-    req = urllib.request.Request(f"{API}/proxies/proxy-select", data=data,
-                                 method="PUT",
-                                 headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        f"{API}/proxies/proxy-select",
+        data=data,
+        method="PUT",
+        headers={"Content-Type": "application/json"},
+    )
     try:
         urllib.request.urlopen(req, timeout=10)
         print("  ✅ 已切换")
@@ -194,9 +212,9 @@ def main():
         name = r["name"]
         info = pd.get(name, {})
         t = info.get("type", "?")
-        gh = f"{r['github_ms']}ms" if r['github_ms'] >= 0 else "超时"
-        yt = f"{r['youtube_ms']}ms" if r['youtube_ms'] >= 0 else "超时"
-        cf = f"{r['speed_ms']}ms" if r['speed_ms'] >= 0 else "-"
+        gh = f"{r['github_ms']}ms" if r["github_ms"] >= 0 else "超时"
+        yt = f"{r['youtube_ms']}ms" if r["youtube_ms"] >= 0 else "超时"
+        cf = f"{r['speed_ms']}ms" if r["speed_ms"] >= 0 else "-"
         if r["all_ok"]:
             status = "✅"
         elif r["healthy"]:
@@ -211,7 +229,9 @@ def main():
     total_nodes = len(results)
     healthy = sum(1 for r in results if r["healthy"])
     all_ok = sum(1 for r in results if r["all_ok"])
-    print(f"  总计 {total_nodes} 个节点 | GitHub连通: {healthy} | YouTube连通: {all_ok}")
+    print(
+        f"  总计 {total_nodes} 个节点 | GitHub连通: {healthy} | YouTube连通: {all_ok}"
+    )
 
     # Show current node
     try:

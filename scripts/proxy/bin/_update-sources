@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# _update-sources — 智能源更新控制器（cron 目标命令）
+#
+# 由 cron 每 30 分钟调用一次，根据当前节点状况决定是否需要更新：
+#   - 无节点 → 立即下载（每半小时试一次）
+#   - 有节点 → 距离上次下载超过 24 小时才下载
+#   - 04:00   → 强制更新（每日固定）
+#
+# 流程: source-chromego.sh → _fetch-clash → generate-config → restart
+#
+# 用法: _update-sources [--force]     # --force 跳过所有间隔判断
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+CONFIGS_DIR="$SCRIPT_DIR/data/chromego_configs"
+CONFIG_JSON="$CONFIGS_DIR/config.json"
+TIMESTAMP_FILE="$CONFIGS_DIR/.last-update"
+FORCE=false
+
+if [[ "${1:-}" = "--force" ]]; then
+  FORCE=true
+fi
+
+LOG_TAG="[_update-sources]"
+
+# ── 当前节点数 ──
+count_nodes() {
+  local cfg="$1"
+  [ -f "$cfg" ] || { echo 0; return; }
+  python3 -c "
+import json
+try:
+    c = json.load(open('$cfg'))
+    out = c.get('outbounds', [])
+    # count nodes that have a 'server' key (real nodes, not groups)
+    nodes = [o for o in out if isinstance(o, dict) and o.get('type') in ('vless','vmess','trojan','ss','hysteria','hysteria2','tuic','direct')]
+    print(len(nodes))
+except: print(0)
+" 2>/dev/null || echo 0
+}
+
+# ── 距上次更新的小时数 ──
+hours_since_last_update() {
+  [ -f "$TIMESTAMP_FILE" ] || { echo 999; return; }
+  local last
+  last="$(cat "$TIMESTAMP_FILE")"
+  local now
+  now="$(date +%s)"
+  echo "$(( (now - last) / 3600 ))"
+}
+
+# ── 判断是否需要更新 ──
+should_update() {
+  $FORCE && { echo "  $LOG_TAG --force, 开始更新"; return 0; }
+
+  local hour
+  hour="$(date +%H)"
+  # 04:00 固定更新
+  if [ "$hour" = "04" ]; then
+    echo "  $LOG_TAG 每日 04:00 固定更新"
+    return 0
+  fi
+
+  local node_count
+  node_count="$(count_nodes "$CONFIG_JSON")"
+  local hours_ago
+  hours_ago="$(hours_since_last_update)"
+
+  if [ "$node_count" -eq 0 ]; then
+    echo "  $LOG_TAG 无节点 (上次更新 ${hours_ago}h 前), 立即下载"
+    return 0
+  fi
+
+  if [ "$hours_ago" -ge 24 ]; then
+    echo "  $LOG_TAG 节点 ${node_count} 个, 距上次更新 ${hours_ago}h (>=24h), 开始更新"
+    return 0
+  fi
+
+  echo "  $LOG_TAG 节点 ${node_count} 个, 距上次更新 ${hours_ago}h (<24h), 跳过"
+  return 1
+}
+
+# ── 执行更新 ──
+do_update() {
+  echo "  $LOG_TAG 下载 ChromeGo 源..."
+  bash "$SCRIPT_DIR/lib/source-chromego.sh" || warn "  source-chromego.sh 部分失败"
+
+  echo "  $LOG_TAG 下载 Clash 源..."
+  bash "$SCRIPT_DIR/bin/_fetch-clash" || warn "  _fetch-clash 部分失败"
+
+  echo "  $LOG_TAG 生成 sing-box 配置..."
+  python3 "$SCRIPT_DIR/lib/generate-config.py" \
+    --proxy-yaml "$SCRIPT_DIR/data/config.yaml" \
+    --configs "$CONFIGS_DIR" \
+    --output "$CONFIG_JSON" || {
+    err "  generate-config.py 失败"
+    return 1
+  }
+
+  echo "  $LOG_TAG 重启 sing-box..."
+  if command -v systemctl &>/dev/null; then
+    sudo systemctl restart sing-box 2>/dev/null || \
+    sudo systemctl restart sing-box-chromego 2>/dev/null || true
+    sleep 2
+  fi
+
+  # 写入时间戳
+  date +%s > "$TIMESTAMP_FILE"
+  echo "  $LOG_TAG 更新完成"
+}
+
+main() {
+  if should_update; then
+    do_update
+  fi
+}
+
+main "$@"
