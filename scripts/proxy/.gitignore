@@ -1,3 +1,12 @@
-config.yaml
+# Generated data files
+data/
+!data/.gitkeep
+
+# Legacy paths (pre-restructure)
+.tmp/
 chromego_configs/
-.au1rxx-cache.json
+config.json
+config.yaml
+*cache.json
+merged-*.yaml
+merged-*.json

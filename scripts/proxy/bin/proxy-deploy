@@ -5,22 +5,22 @@ set -euo pipefail
 # ChromeGo → sing-box 一键部署脚本
 # ═══════════════════════════════════════════════════════════════════════
 # 用法:
-#   ./chromego-deploy.sh                         # 安装 sing-box + 生成配置 + 启动
-#   ./chromego-deploy.sh --config-only            # 只生成配置文件
-#   ./chromego-deploy.sh --configs /path/to/dir   # 指定配置目录
-#   ./chromego-deploy.sh --port 1080              # 自定义代理端口
-#   ./chromego-deploy.sh --install-cron           # 安装定时更新（每天04:00）
-#   ./chromego-deploy.sh --no-cron                # 跳过定时更新安装
+#   proxy-deploy                              # 安装 sing-box + 生成配置 + 启动
+#   proxy-deploy --config-only                # 只生成配置文件
+#   proxy-deploy --configs /path/to/dir       # 指定配置目录
+#   proxy-deploy --port 1080                  # 自定义代理端口
+#   proxy-deploy --install-watch [分钟]        # 安装健康监控 cron（默认30分钟）
+#   proxy-deploy --remove-watch               # 移除健康监控 cron
+#   proxy-deploy --show-watch                 # 查看健康监控状态
 # ═══════════════════════════════════════════════════════════════════════
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIGS_DIR="${SCRIPT_DIR}/chromego_configs"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIGS_DIR="${SCRIPT_DIR}/data/chromego_configs"
 SINGBOX_BIN="${SINGBOX_BIN:-sing-box}"
 SINGBOX_CONFIG="${CONFIGS_DIR}/config.json"
 PORT=1080
 DASHBOARD_PORT=9090
 CONFIG_ONLY=false
-INSTALL_CRON=true
 
 # ── 参数解析 ──────────────────────────────────────────────────────────
 
@@ -30,9 +30,10 @@ while [[ $# -gt 0 ]]; do
     --configs)        CONFIGS_DIR="$2"; shift 2 ;;
     --port)           PORT="$2"; shift 2 ;;
     --dashboard-port) DASHBOARD_PORT="$2"; shift 2 ;;
-    --install-cron)   INSTALL_CRON=true; shift ;;
-    --no-cron)        INSTALL_CRON=false; shift ;;
-    -h|--help)        head -20 "$0"; exit 0 ;;
+    --install-watch)  WATCH_ACTION="install"; WATCH_INTERVAL="${2:-30}"; shift; [[ "$WATCH_INTERVAL" =~ ^[0-9]+$ ]] && shift || WATCH_INTERVAL="30" ;;
+    --remove-watch)   WATCH_ACTION="remove"; shift ;;
+    --show-watch)     WATCH_ACTION="show"; shift ;;
+    -h|--help)        head -26 "$0"; exit 0 ;;
     *) echo "未知参数: $1"; exit 1 ;;
   esac
 done
@@ -53,10 +54,10 @@ step_config() {
   echo ""
   info "=== [1/4] 生成 sing-box 配置 ==="
 
-  local gen_script="${SCRIPT_DIR}/chromego-gen-config.py"
+  local gen_script="${SCRIPT_DIR}/lib/generate-config.py"
   if [[ ! -f "$gen_script" ]]; then
     err "未找到 ${gen_script}"
-    echo "请先运行 chromego-source.sh 下载 ChromeGo 源"
+    echo "请先运行 lib/source-chromego.sh 下载 ChromeGo 源"
     exit 1
   fi
 
@@ -235,6 +236,29 @@ print(len(proxies))
 # ═══════════════════════════════════════════════════════════════════════
 
 main() {
+  case "${WATCH_ACTION:-}" in
+    install)
+      local watch_script="${SCRIPT_DIR}/bin/proxy-health"
+      if [ ! -f "$watch_script" ]; then
+        err "未找到 ${watch_script}"
+        exit 1
+      fi
+      bash "$watch_script" --install-cron "$WATCH_INTERVAL"
+      ok "健康监控已安装（每 ${WATCH_INTERVAL} 分钟检查一次）"
+      exit 0
+      ;;
+    remove)
+      bash "${SCRIPT_DIR}/bin/proxy-health" --remove-cron
+      ok "健康监控已移除"
+      exit 0
+      ;;
+    show)
+      bash "${SCRIPT_DIR}/bin/proxy-health" --show-cron
+      bash "${SCRIPT_DIR}/bin/proxy-health" --status 2>/dev/null || true
+      exit 0
+      ;;
+  esac
+
   echo "╔══════════════════════════════════════════════════╗"
   echo "║   ChromeGo → sing-box 一键部署                   ║"
   echo "╚══════════════════════════════════════════════════╝"
@@ -248,20 +272,6 @@ main() {
 
   step_install
   step_service
-
-  # ── 安装定时更新 cron ──
-  if $INSTALL_CRON; then
-    echo ""
-    info "=== 安装定时更新（每天 04:00）==="
-    info "  （临时目录下载 → 验证 → 原子替换 — 不重启服务，不影响现有连接）"
-    local cron_script="${SCRIPT_DIR}/chromego-update-cron.sh"
-    if [[ -f "$cron_script" ]]; then
-      bash "$cron_script" --install-cron
-    else
-      warn "未找到 chromego-update-cron.sh，跳过定时安装"
-    fi
-  fi
-
   step_info
 }
 

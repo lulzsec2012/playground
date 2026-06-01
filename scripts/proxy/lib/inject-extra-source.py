@@ -6,7 +6,7 @@ import urllib.request
 import urllib.error
 
 AU1RXX_URL = "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/singbox.json"
-CACHE_FILE = os.path.join(os.path.dirname(__file__), ".au1rxx-cache.json")
+CACHE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", ".au1rxx-cache.json")
 
 NON_PROXY_TYPES = {"selector", "urltest", "direct", "block", "dns", "dns-stub"}
 
@@ -106,7 +106,7 @@ def main():
     args = [a for a in args if not a.startswith("--")]
 
     if not args:
-        print("用法: python3 chromego-extra-source.py [--check] [--skip-download] <config.json>", file=sys.stderr)
+        print("用法: lib/inject-extra-source.py [--check] [--skip-download] <config.json>", file=sys.stderr)
         sys.exit(1)
 
     config_path = args[0]
@@ -117,7 +117,7 @@ def main():
     with open(config_path) as f:
         config = json.load(f)
 
-    print("--- chromego-extra-source ---")
+    print("--- inject-extra-source ---")
     print()
     print(f"  source: {AU1RXX_URL}")
 

@@ -46,7 +46,7 @@ build_channel_configs() {
   fi
 
   python3 -c "
-import json
+import json, os
 
 with open('${SERVICES_FILE}') as f:
     data = json.load(f)
@@ -63,8 +63,8 @@ for s in services:
     svc_type = s.get('service', '')
     models = s.get('models', [])
 
-    # Filter out '(running)' placeholder
-    real_models = [m for m in models if m != '(running)']
+    # Filter out '(running)' placeholder, extract basename
+    real_models = [os.path.basename(m) if '/' in m else m for m in models if m != '(running)']
 
     if not real_models:
         continue

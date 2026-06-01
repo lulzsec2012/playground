@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# chromego-source.sh — 从 ChromeGo 上游 GitLab 源下载免费代理配置
+# source-chromego.sh — 从 ChromeGo 上游 GitLab 源下载免费代理配置
 #
 # ChromeGo 项目（bannedbook/fanqiang）在 GitLab 维护了多个协议的最新可用代理，
 # 包含 VLESS+REALITY+XHTTP、Hysteria2、Sing-box 等新一代协议的原生配置。
 # 本脚本直接从该源下载配置，无需 700MB 的 ChromeGo 分发包。
 #
 # Usage:
-#   bash chromego-source.sh                          # download to default dir
-#   bash chromego-source.sh ./my_configs              # custom output dir
-#   bash chromego-source.sh --help                    # show help
+#   bash lib/source-chromego.sh                          # download to default dir
+#   bash lib/source-chromego.sh ./my_configs             # custom output dir
+#   bash lib/source-chromego.sh --help                   # show help
 #
 # Output structure:
 #   <output_dir>/<protocol>/<batch>.<ext>
@@ -16,12 +16,11 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-OUTPUT_DIR="${1:-$SCRIPT_DIR/chromego_configs}"
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+OUTPUT_DIR="${1:-$SCRIPT_DIR/data/chromego_configs}"
 
 # www.gitlabip.xyz is a GitLab reverse proxy with better reachability inside CN
-# PRIMARY 不可达(国内IP被墙)，改用 gitlab.com
-PRIMARY_BASE="https://gitlab.com/free9999/ipupdate/-/raw/master/backup/img/1/2/ipp"
+PRIMARY_BASE="https://www.gitlabip.xyz/Alvin9999/PAC/refs/heads/master/backup/img/1/2/ipp"
 FALLBACK_BASE="https://gitlab.com/free9999/ipupdate/-/raw/master/backup/img/1/2/ipp"
 
 PROTOCOLS=(
@@ -75,7 +74,7 @@ main() {
 
     echo ""
     echo "══════════════════════════════════════"
-    echo "  chromego-source — proxy config fetch"
+    echo "  source-chromego — proxy config fetch"
     echo "══════════════════════════════════════"
     echo ""
     echo "  output: $OUTPUT_DIR"

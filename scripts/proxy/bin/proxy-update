@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# chromego-update-cron.sh — 定时更新 ChromeGo 源 + 健康检查 + 条件重启
+# proxy-update — 定时更新 ChromeGo 源 + 健康检查 + 条件重启
 #
 # 用法:
-#   bash chromego-update-cron.sh                    # 更新配置 → 健康检查 → 不可用时重启
-#   bash chromego-update-cron.sh --check            # 只更新到临时目录做验证，不替换正式配置
-#   bash chromego-update-cron.sh --health-only      # 只做健康检查，不更新配置
-#   bash chromego-update-cron.sh --diff             # 对比新旧配置的节点数量差异
-#   bash chromego-update-cron.sh --install-cron     # 安装定时任务（每天04:00）
-#   bash chromego-update-cron.sh --remove-cron      # 移除定时任务
-#   bash chromego-update-cron.sh --show-cron        # 查看定时任务状态
+#   proxy-update                                 # 更新配置 → 健康检查 → 不可用时重启
+#   proxy-update --check                         # 只更新到临时目录做验证，不替换正式配置
+#   proxy-update --health-only                   # 只做健康检查，不更新配置
+#   proxy-update --diff                          # 对比新旧配置的节点数量差异
+#   proxy-update --install-cron                  # 安装定时任务（每天04:00）
+#   proxy-update --remove-cron                   # 移除定时任务
+#   proxy-update --show-cron                     # 查看定时任务状态
 #
 # 行为:
 #   1. 在临时目录重新下载 ChromeGo 源（chromego-source.sh）
@@ -22,12 +22,20 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONFIGS_DIR="${SCRIPT_DIR}/chromego_configs"
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+CONFIGS_DIR="${SCRIPT_DIR}/data/chromego_configs"
 SINGBOX_CONFIG="${CONFIGS_DIR}/config.json"
 SINGBOX_BIN="${SINGBOX_BIN:-sing-box}"
-LOG_DIR="${SCRIPT_DIR}/chromego_logs"
+SERVICE_NAME="${SERVICE_NAME:-sing-box-chromego}"
+LOG_DIR="${SCRIPT_DIR}/data/chromego_logs"
 LOG_FILE="${LOG_DIR}/update.log"
+
+# ── OS 检测 ──
+OS="$(uname -s)"
+case "$OS" in
+  Darwin) OS="macos" ;;
+  Linux)  OS="linux" ;;
+esac
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()  { echo -e "${CYAN}$*${NC}"; }
@@ -39,10 +47,10 @@ err()   { echo -e "  ${RED}✗${NC} $*" >&2; }
 # 安装/移除/查看 cron
 # ──────────────────────────────────────────────
 
-CRON_LINE="0 4 * * * cd ${SCRIPT_DIR} && bash chromego-update-cron.sh >/dev/null 2>&1"
+CRON_LINE="0 4 * * * cd ${SCRIPT_DIR} && bash bin/proxy-update >/dev/null 2>&1"
 
 install_cron() {
-  if crontab -l 2>/dev/null | grep -qF "chromego-update-cron.sh"; then
+  if crontab -l 2>/dev/null | grep -qF "bin/proxy-update"; then
     ok "cron 已存在，跳过"
     return
   fi
@@ -51,14 +59,14 @@ install_cron() {
 }
 
 remove_cron() {
-  crontab -l 2>/dev/null | grep -vF "chromego-update-cron.sh" | crontab - || true
+  crontab -l 2>/dev/null | grep -vF "bin/proxy-update" | crontab - || true
   ok "cron 已移除"
 }
 
 show_cron() {
-  if crontab -l 2>/dev/null | grep -qF "chromego-update-cron.sh"; then
+  if crontab -l 2>/dev/null | grep -qF "bin/proxy-update"; then
     echo "cron 状态: 已安装"
-    crontab -l 2>/dev/null | grep "chromego-update-cron.sh"
+    crontab -l 2>/dev/null | grep "bin/proxy-update"
   else
     echo "cron 状态: 未安装"
   fi
@@ -103,7 +111,7 @@ update() {
   # ── 1. 下载最新源到临时目录 ──
   echo "" | tee -a "$LOG_FILE"
   info "=== [1/4] 下载 ChromeGo 源 ===" | tee -a "$LOG_FILE"
-  if ! bash "$SCRIPT_DIR/chromego-source.sh" "$tmp_dir" >> "$LOG_FILE" 2>&1; then
+  if ! bash "$SCRIPT_DIR/lib/source-chromego.sh" "$tmp_dir" >> "$LOG_FILE" 2>&1; then
     err "ChromeGo 源下载失败（日志: $LOG_FILE）" | tee -a "$LOG_FILE"
     return 1
   fi
@@ -112,7 +120,7 @@ update() {
   # ── 2. 在临时目录生成新配置 ──
   echo "" | tee -a "$LOG_FILE"
   info "=== [2/4] 生成 sing-box 配置 ===" | tee -a "$LOG_FILE"
-  if ! python3 "$SCRIPT_DIR/chromego-gen-config.py" \
+  if ! python3 "$SCRIPT_DIR/lib/generate-config.py" \
       --configs "$tmp_dir" \
       --output "$tmp_config" >> "$LOG_FILE" 2>&1; then
     err "配置生成失败" | tee -a "$LOG_FILE"
@@ -123,7 +131,7 @@ update() {
   # ── 3. 合并 Au1rxx 额外节点 ──
   echo "" | tee -a "$LOG_FILE"
   info "=== [3/4] 合并 Au1rxx 额外节点 ===" | tee -a "$LOG_FILE"
-  if ! python3 "$SCRIPT_DIR/chromego-extra-source.py" "$tmp_config" >> "$LOG_FILE" 2>&1; then
+  if ! python3 "$SCRIPT_DIR/lib/inject-extra-source.py" "$tmp_config" >> "$LOG_FILE" 2>&1; then
     warn "Au1rxx 源合并失败（非致命，继续使用 ChromeGo 节点）" | tee -a "$LOG_FILE"
   else
     ok "Au1rxx 节点合并完成" | tee -a "$LOG_FILE"
@@ -172,24 +180,44 @@ update() {
   echo "" | tee -a "$LOG_FILE"
   info "=== 重启 sing-box ===" | tee -a "$LOG_FILE"
 
-  if command -v systemctl &>/dev/null; then
-    systemctl restart "$SERVICE_NAME" >> "$LOG_FILE" 2>&1
-    sleep 2
-    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-      ok "重启完成，新配置已生效" | tee -a "$LOG_FILE"
-    else
-      err "重启失败，检查日志: journalctl -u $SERVICE_NAME -n 30" | tee -a "$LOG_FILE"
-    fi
-  else
-    if command -v "$SINGBOX_BIN" &>/dev/null; then
-      pkill "$SINGBOX_BIN" 2>/dev/null || true
+  case "$OS" in
+    macos)
+      local plist_label="com.sing-box.chromego"
+      launchctl stop "$plist_label" 2>/dev/null || true
       sleep 1
-      nohup "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG" >/dev/null 2>&1 &
-      ok "sing-box 已重启" | tee -a "$LOG_FILE"
-    else
-      err "找不到 sing-box，请手动重启" | tee -a "$LOG_FILE"
-    fi
-  fi
+      launchctl start "$plist_label" 2>/dev/null || true
+      sleep 1
+      if launchctl list | grep -q "$plist_label"; then
+        ok "sing-box 已重启 (launchd)" | tee -a "$LOG_FILE"
+      else
+        # launchd 不可用，回退到 pkill + nohup
+        pkill -f "$SINGBOX_BIN run" 2>/dev/null || true
+        sleep 1
+        nohup "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG" >/dev/null 2>&1 &
+        ok "sing-box 已重启 (nohup)" | tee -a "$LOG_FILE"
+      fi
+      ;;
+    linux)
+      if command -v systemctl &>/dev/null; then
+        systemctl restart "$SERVICE_NAME" >> "$LOG_FILE" 2>&1
+        sleep 2
+        if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+          ok "重启完成，新配置已生效" | tee -a "$LOG_FILE"
+        else
+          err "重启失败，检查日志: journalctl -u $SERVICE_NAME -n 30" | tee -a "$LOG_FILE"
+        fi
+      else
+        if command -v "$SINGBOX_BIN" &>/dev/null; then
+          pkill "$SINGBOX_BIN" 2>/dev/null || true
+          sleep 1
+          nohup "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG" >/dev/null 2>&1 &
+          ok "sing-box 已重启" | tee -a "$LOG_FILE"
+        else
+          err "找不到 sing-box，请手动重启" | tee -a "$LOG_FILE"
+        fi
+      fi
+      ;;
+  esac
 }
 
 # ── 健康检查（独立功能）──

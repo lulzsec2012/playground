@@ -26,8 +26,8 @@ detect_rc() {
 
 gen_code() {
     cat <<CODE
-# ${NAME} — 代理工具集（fetch.sh, free.sh 等）
-export PATH="\${PATH}:${SCRIPT_DIR}"
+# ${NAME} — 代理工具集
+export PATH="\${PATH}:${SCRIPT_DIR}:${SCRIPT_DIR}/bin"
 CODE
 }
 

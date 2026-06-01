@@ -9,11 +9,11 @@ Merge strategy per format:
   4. Others        -> servers.json        (reference extraction only, no merge)
 
 Usage:
-  python3 chromego-merge.py                    # default chromego_configs/
-  python3 chromego-merge.py <config-dir>
-  python3 chromego-merge.py --skip-clash        # skip Clash merge
-  python3 chromego-merge.py --skip-xray         # skip Xray merge
-  python3 chromego-merge.py --skip-singbox      # skip Sing-box merge
+  lib/merge-protocols.py                               # default data/chromego_configs/
+  lib/merge-protocols.py <config-dir>
+  lib/merge-protocols.py --skip-clash                  # skip Clash merge
+  lib/merge-protocols.py --skip-xray                   # skip Xray merge
+  lib/merge-protocols.py --skip-singbox                # skip Sing-box merge
 """
 
 import json

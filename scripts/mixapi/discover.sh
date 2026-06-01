@@ -91,7 +91,7 @@ extract_models() {
   fi
 
   python3 -c "
-import json, sys
+import json, os, sys
 
 resp = json.loads(sys.stdin.read())
 model_key = '${model_key}'
@@ -101,7 +101,7 @@ if model_key == 'id':
     # vLLM/OpenAI: {'data': [{'id': 'model1', ...}]}
     for item in resp.get('data', []):
         if isinstance(item, dict) and 'id' in item:
-            models.append(item['id'])
+            models.append(os.path.basename(item['id']))
 else:
     # Try common response structures
     for key in ['models', 'data', 'model_info', 'system_stats']:

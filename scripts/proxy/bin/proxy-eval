@@ -1,39 +1,240 @@
-import json, urllib.request, urllib.parse, sys
+#!/usr/bin/env python3
+"""
+Evaluate all proxy nodes with multi-site health check + speed ranking.
+
+Process:
+  1. Test each node against GitHub (connectivity gate)
+  2. If GitHub passes, test YouTube (connectivity gate)
+  3. If both pass, measure Cloudflare latency (speed tiebreaker)
+  4. Report all results, auto-select best if --auto-select is given
+
+Usage:
+proxy-eval                                    # show ranking
+proxy-eval --auto-select                       # + set best node via Clash API
+proxy-eval --auto-select=healthiest            # same
+proxy-eval --auto-select=fastest               # set fastest node regardless of health
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 
 API = "http://127.0.0.1:9090"
 
-req = urllib.request.Request(f"{API}/proxies")
-resp = urllib.request.urlopen(req)
-data = json.loads(resp.read())
-pd = data.get("proxies", data)
+# Test targets; only the latency URL is used for ranking
+HEALTH_TARGETS = {
+    "github": "https://github.com",
+    "youtube": "https://www.youtube.com",
+}
+SPEED_URL = "https://cp.cloudflare.com/generate_204"
 
-results = []
-for name, info in pd.items():
-    if not isinstance(info, dict):
-        continue
-    t = info.get("type", "")
-    if t in ("Selector", "Fallback", "URLTest", "Direct"):
-        continue
-    
+HEALTH_TIMEOUT_MS = 5000   # 5s per health check
+SPEED_TIMEOUT_MS = 5000    # 5s for speed test
+
+
+def _clash_get(path):
+    url = f"{API}{path}"
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read())
+
+
+def _node_delay(name, url, timeout_ms):
+    """Test latency of a node to a URL. Returns delay in ms, or -1 on failure."""
     try:
         encoded = urllib.parse.quote(name, safe="")
-        url = f"{API}/proxies/{encoded}/delay?url=https://cp.cloudflare.com/generate_204&timeout=5000"
-        req2 = urllib.request.Request(url)
-        resp2 = urllib.request.urlopen(req2, timeout=10)
-        d = json.loads(resp2.read())
-        delay = d.get("delay", -1)
-        results.append((name, t, delay))
+        test_url = f"{API}/proxies/{encoded}/delay?url={urllib.parse.quote(url, safe='')}&timeout={timeout_ms}"
+        req = urllib.request.Request(test_url)
+        with urllib.request.urlopen(req, timeout=timeout_ms // 1000 + 2) as resp:
+            d = json.loads(resp.read())
+            return d.get("delay", -1)
     except Exception:
-        results.append((name, t, -1))
+        return -1
 
-results.sort(key=lambda x: (x[2] if x[2] >= 0 else 9999, x[0]))
-print(f"{'节点':25s} {'类型':12s} {'延迟(ms)':10s}")
-print("-" * 50)
-for name, t, delay in results:
-    d_str = f"{delay}ms" if delay >= 0 else "超时"
-    print(f" {name:25s} {t:12s} {d_str:10s}")
 
-req3 = urllib.request.Request(f"{API}/proxies/proxy-urltest")
-resp3 = urllib.request.urlopen(req3)
-d3 = json.loads(resp3.read())
-print(f"\n urltest 当前选择: {d3.get('now', 'unknown')}")
+def _test_node(name):
+    """Run multi-site health check + speed test. Returns dict with results."""
+    result = {"name": name, "healthy": False, "github_ms": -1, "youtube_ms": -1,
+              "speed_ms": -1, "speed_ok": False, "all_ok": False}
+
+    # Phase 1: GitHub health gate
+    result["github_ms"] = _node_delay(name, HEALTH_TARGETS["github"], HEALTH_TIMEOUT_MS)
+    if result["github_ms"] < 0:
+        return result
+
+    # Phase 2: YouTube health gate
+    result["youtube_ms"] = _node_delay(name, HEALTH_TARGETS["youtube"], HEALTH_TIMEOUT_MS)
+    if result["youtube_ms"] < 0:
+        result["healthy"] = True  # passed GitHub
+        return result
+
+    # Phase 3: Speed test (Cloudflare latency)
+    result["healthy"] = True
+    result["speed_ms"] = _node_delay(name, SPEED_URL, SPEED_TIMEOUT_MS)
+    if result["speed_ms"] >= 0:
+        result["speed_ok"] = True
+    result["all_ok"] = True
+    return result
+
+
+def _auto_select(nodes, mode):
+    """Select and set the best node via Clash API."""
+    if not nodes:
+        print("\n  ❌ 没有可用的节点，无法自动选择")
+        return 1
+
+    if mode == "healthy":
+        candidates = [n for n in nodes if n["healthy"]]
+        if not candidates:
+            print("\n  ❌ 没有健康节点 (能连 GitHub 的)")
+            return 1
+        # Among healthy nodes, pick the one with lowest Cloudflare latency
+        best = min(candidates, key=lambda n: (n["speed_ms"] if n["speed_ms"] >= 0 else 99999))
+    elif mode == "fastest":
+        candidates = [n for n in nodes if n["speed_ok"]]
+        if not candidates:
+            print("\n  ❌ 没有节点能完成 Cloudflare 测速")
+            return 1
+        best = min(candidates, key=lambda n: n["speed_ms"])
+    elif mode == "all_ok":
+        candidates = [n for n in nodes if n["all_ok"]]
+        if not candidates:
+            print("\n  ❌ 没有节点能同时连通 GitHub + YouTube")
+            return 1
+        best = min(candidates, key=lambda n: (n["speed_ms"] if n["speed_ms"] >= 0 else 99999))
+    else:
+        print(f"\n  ❌ 未知的 auto-select 模式: {mode}")
+        return 1
+
+    name = best["name"]
+    print(f"\n  → 自动切换到: {name} (GitHub={best['github_ms']}ms, "
+          f"YouTube={best['youtube_ms']}ms, Cloudflare={best['speed_ms']}ms)")
+
+    data = json.dumps({"name": name}).encode()
+    req = urllib.request.Request(f"{API}/proxies/proxy-select", data=data,
+                                 method="PUT",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        print("  ✅ 已切换")
+        return 0
+    except urllib.error.HTTPError as e:
+        print(f"  ❌ 切换失败: HTTP {e.code}")
+        return 1
+    except Exception as e:
+        print(f"  ❌ 切换失败: {e}")
+        return 1
+
+
+def main():
+    auto_select = None
+    for arg in sys.argv[1:]:
+        if arg == "--auto-select":
+            auto_select = "all_ok"
+        elif arg.startswith("--auto-select="):
+            auto_select = arg.split("=", 1)[1]
+        elif arg in ("-h", "--help"):
+            print(__doc__)
+            return 0
+
+    # Fetch all proxy nodes from Clash API
+    try:
+        data = _clash_get("/proxies")
+    except Exception as e:
+        print(f"❌ 无法连接 Clash API: {e}", file=sys.stderr)
+        return 1
+
+    pd = data.get("proxies", data)
+
+    # Collect leaf nodes (skip group types)
+    nodes = []
+    for name, info in pd.items():
+        if not isinstance(info, dict):
+            continue
+        t = info.get("type", "")
+        if t in ("Selector", "Fallback", "URLTest", "Direct", "Compatible"):
+            continue
+        nodes.append(name)
+
+    if not nodes:
+        print("❌ 没有找到可用的代理节点", file=sys.stderr)
+        return 1
+
+    # Test all nodes
+    results = []
+    total = len(nodes)
+    for i, name in enumerate(nodes, 1):
+        print(f"\r  🔍 测试进度: {i}/{total}  ", end="", file=sys.stderr)
+        r = _test_node(name)
+        results.append(r)
+    print(file=sys.stderr)
+
+    # Sort: healthy nodes first, then by speed_ms, then alphabetically
+    def sort_key(r):
+        if r["all_ok"]:
+            return (0, r["speed_ms"] if r["speed_ms"] >= 0 else 99999, r["name"])
+        elif r["healthy"]:
+            return (1, 0, r["name"])
+        else:
+            return (2, 0, r["name"])
+
+    results.sort(key=sort_key)
+
+    # Display results
+    header = f"  {'节点':25s} {'类型':12s} {'GitHub':>7s} {'YouTube':>7s} {'CF延迟':>7s} {'状态':>6s}"
+    sep = "  " + "-" * 72
+    print()
+    print(header)
+    print(sep)
+
+    for r in results:
+        name = r["name"]
+        info = pd.get(name, {})
+        t = info.get("type", "?")
+        gh = f"{r['github_ms']}ms" if r['github_ms'] >= 0 else "超时"
+        yt = f"{r['youtube_ms']}ms" if r['youtube_ms'] >= 0 else "超时"
+        cf = f"{r['speed_ms']}ms" if r['speed_ms'] >= 0 else "-"
+        if r["all_ok"]:
+            status = "✅"
+        elif r["healthy"]:
+            status = "⚠️"
+        else:
+            status = "❌"
+        print(f"  {name:25s} {t:12s} {gh:>7s} {yt:>7s} {cf:>7s} {status:>6s}")
+
+    print()
+
+    # Summary
+    total_nodes = len(results)
+    healthy = sum(1 for r in results if r["healthy"])
+    all_ok = sum(1 for r in results if r["all_ok"])
+    print(f"  总计 {total_nodes} 个节点 | GitHub连通: {healthy} | YouTube连通: {all_ok}")
+
+    # Show current node
+    try:
+        cur = _clash_get("/proxies/proxy-select")
+        print(f"  当前选择: {cur.get('now', 'unknown')}")
+    except Exception:
+        pass
+    try:
+        cur2 = _clash_get("/proxies/proxy-urltest")
+        print(f"  urltest当前: {cur2.get('now', 'unknown')}")
+    except Exception:
+        pass
+
+    # Auto-select
+    if auto_select:
+        return _auto_select(results, auto_select)
+
+    print()
+    print("  自动切换最佳节点:")
+    print("    proxy-eval --auto-select")
+    print()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

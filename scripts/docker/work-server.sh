@@ -86,12 +86,11 @@ work-server() {
         if [ ! -f "$CLASH_CONFIG/clash_config.yaml" ]; then
             echo "📡 No Clash subscription URL. Fetching free proxies..."
             mkdir -p "$CLASH_CONFIG"
-            if [ -f "$SCRIPT_DIR/../proxy/fetch.sh" ]; then
-                # Timeout: 90s for all 5 sources (each has 20s curl limit)
+            if [ -f "$SCRIPT_DIR/../proxy/proxy-fetch.sh" ]; then
                 if command -v timeout &>/dev/null; then
-                    timeout 90 bash "$SCRIPT_DIR/../proxy/fetch.sh" 2>/dev/null || true
+                    timeout 90 bash "$SCRIPT_DIR/../proxy/proxy-fetch.sh" 2>/dev/null || true
                 else
-                    bash "$SCRIPT_DIR/../proxy/fetch.sh" 2>/dev/null || true
+                    bash "$SCRIPT_DIR/../proxy/proxy-fetch.sh" 2>/dev/null || true
                 fi
                 if [ -f "$SCRIPT_DIR/../proxy/config.yaml" ]; then
                     NODES=$(grep -c '^- name:' "$SCRIPT_DIR/../proxy/config.yaml" 2>/dev/null || echo 0)

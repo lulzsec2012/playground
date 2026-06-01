@@ -21,8 +21,7 @@ scripts/
 ├── mixapi/          # MIXAPI management
 ├── opencode/        # OpenCode install script
 ├── pesudo/          # Sudo replacement with audit
-├── proxy/           # Proxy tools (fetch.sh, free.sh, cron)
-└── wireguard/       # WireGuard configs
+└── proxy/           # Proxy tools (fetch.sh, free.sh, cron)
 ```
 
 New additions go into `scripts/<name>/` with its own README, scripts, and optionally a `register.sh`.

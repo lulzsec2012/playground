@@ -21,7 +21,6 @@ Containerized development environments for AI/compiler work.
 │   │   └── setup-docker-proxy.sh  Docker daemon HTTP proxy config
 │   ├── utils.sh                   Utility functions
 │   ├── tailscale/                 Tailscale deployment tools
-│   ├── wireguard/                 WireGuard configuration
 │   ├── proxy/                     Proxy configuration
 │   ├── emacs/                     Emacs setup scripts
 │   ├── hermes/                    Hermes toolkit
