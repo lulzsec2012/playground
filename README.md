@@ -22,7 +22,6 @@ Containerized development environments for AI/compiler work.
 │   ├── utils.sh                   Utility functions
 │   ├── tailscale/                 Tailscale deployment tools
 │   ├── wireguard/                 WireGuard configuration
-│   ├── socks/                     SOCKS proxy setup
 │   ├── proxy/                     Proxy configuration
 │   ├── emacs/                     Emacs setup scripts
 │   ├── hermes/                    Hermes toolkit

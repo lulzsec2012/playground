@@ -22,7 +22,6 @@ scripts/
 ├── opencode/        # OpenCode install script
 ├── pesudo/          # Sudo replacement with audit
 ├── proxy/           # Proxy tools (fetch.sh, free.sh, cron)
-├── socks/           # SOCKS proxy
 └── wireguard/       # WireGuard configs
 ```
 
