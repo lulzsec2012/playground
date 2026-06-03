@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""
+proxy-filter — TCP health check + dead node removal for Clash YAML config.
+
+Reads a merged Clash YAML config, TCP-connects to each proxy's server:port,
+removes unreachable nodes, and updates proxy-group terminal references.
+
+Usage:
+    proxy-filter config.yaml                              # in-place filter
+    proxy-filter config.yaml -o filtered.yaml             # write to file
+    proxy-filter config.yaml --dry-run                    # stats only
+    proxy-filter config.yaml -t 8 -w 15                   # 8s timeout, 15 workers
+"""
+import argparse
+import copy
+import os
+import re
+import socket
+import sys
+import yaml
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import OrderedDict
+
+BUILTINS = {"DIRECT", "REJECT", "REJECT-DROP", "PASS", "GLOBAL", "PROXY"}
+
+
+def tcp_check(server, port, timeout):
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((server, int(port)))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+def tcp_check_v6(server, port, timeout):
+    """Try IPv6 connect, fallback to IPv4."""
+    try:
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((server, int(port), 0, 0))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+def get_server_port(proxy):
+    server = (proxy.get("server") or "").strip()
+    port = proxy.get("port") or 0
+    if server and port:
+        try:
+            return server, int(port)
+        except (ValueError, TypeError):
+            return None, None
+    return None, None
+
+
+def try_connect(server, port, timeout):
+    """Try IPv4 first, fall back to IPv6."""
+    if tcp_check(server, port, timeout):
+        return True
+    return tcp_check_v6(server, port, timeout)
+
+
+def filter_proxies(proxies, timeout, workers):
+    alive = []
+    dead_count = 0
+    total = len(proxies)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {}
+        for p in proxies:
+            server, port = get_server_port(p)
+            if server and port:
+                future = executor.submit(try_connect, server, port, timeout)
+                future_map[future] = (p, server, port)
+            else:
+                alive.append(p)
+
+        for future in as_completed(future_map):
+            p, server, port = future_map[future]
+            if future.result():
+                alive.append(p)
+            else:
+                dead_count += 1
+
+    return alive, dead_count, total
+
+
+def is_terminal_group(group, group_names, proxy_names):
+    """Determine if a proxy-group is terminal (directly lists proxy names, not sub-groups)."""
+    refs = group.get("proxies", [])
+    if not refs:
+        return False
+    has_proxy_ref = any(
+        r not in BUILTINS and r not in group_names for r in refs
+    )
+    return has_proxy_ref
+
+
+def update_terminal_group_proxies(groups, group_names, proxy_names):
+    """Replace proxy lists in terminal groups with the current proxy name list."""
+    updated = []
+    terminal_count = 0
+    for g in groups:
+        name = g.get("name", "")
+        proxies = g.get("proxies", [])
+        if not proxies:
+            updated.append(g)
+            continue
+        has_proxy_ref = any(
+            r not in BUILTINS and r not in group_names and r != name
+            for r in proxies
+        )
+        if has_proxy_ref:
+            g = copy.deepcopy(g)
+            g["proxies"] = list(proxy_names)
+            terminal_count += 1
+        updated.append(g)
+    return updated, terminal_count
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Clash YAML TCP health filter")
+    parser.add_argument("input", help="Input Clash YAML file")
+    parser.add_argument("-o", "--output", help="Output file (default: in-place)")
+    parser.add_argument("-t", "--timeout", type=int, default=8, help="TCP connect timeout in seconds (default: 8)")
+    parser.add_argument("-w", "--workers", type=int, default=15, help="Concurrency (default: 15)")
+    parser.add_argument("--dry-run", action="store_true", help="Show stats without writing")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.input):
+        print(f"error: file not found: {args.input}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(args.input) as f:
+        raw = f.read()
+
+    data = yaml.safe_load(raw)
+    if not data:
+        print("error: empty or invalid YAML", file=sys.stderr)
+        sys.exit(1)
+
+    proxies = data.get("proxies", [])
+    groups = data.get("proxy-groups", [])
+    rules = data.get("rules", [])
+
+    if not proxies:
+        print("no proxies to check", file=sys.stderr)
+        sys.exit(0)
+
+    all_group_names = {g.get("name", "") for g in groups if g.get("name")}
+
+    alive_proxies, dead, total = filter_proxies(proxies, args.timeout, args.workers)
+
+    alive_names = [p.get("name", "") for p in alive_proxies if p.get("name")]
+    alive_count = len(alive_names)
+    dup_count = total - len(alive_proxies) - dead
+
+    # Update terminal group proxy references
+    updated_groups, terminal_count = update_terminal_group_proxies(
+        groups, all_group_names, alive_names
+    )
+
+    if args.dry_run:
+        print(f"total:     {total}")
+        print(f"alive:     {alive_count}")
+        print(f"dead:      {dead}")
+        print(f"terminal groups updated: {terminal_count}")
+        return
+
+    data["proxies"] = alive_proxies
+    data["proxy-groups"] = updated_groups
+
+    output_path = args.output or args.input
+    with open(output_path, "w") as f:
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False, width=4096, indent=2)
+
+    print(f"filtered:  {output_path}")
+    print(f"  {total} total → {alive_count} alive, {dead} dead")
+    print(f"  {terminal_count} terminal groups updated")
+
+
+if __name__ == "__main__":
+    main()

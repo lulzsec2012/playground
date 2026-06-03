@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$SCRIPT_DIR/lib/auto-proxy.sh"
 
 MERGE_PY="$SCRIPT_DIR/lib/merge-clash.py"
+FILTER_PY="$SCRIPT_DIR/bin/proxy-filter"
 GEN_PY="$SCRIPT_DIR/lib/generate-config.py"
 CONFIGS_DIR="$SCRIPT_DIR/data/chromego_configs"
 SOURCES_LIST="$SCRIPT_DIR/config/sources.list"
@@ -110,6 +111,7 @@ deploy_partial() {
   [ ${#src_files[@]} -eq 0 ] && { warn "无源文件，跳过部署"; return 1; }
   info "  部署部分结果 (${#src_files[@]} 个源)..."
   python3 "$MERGE_PY" "$TEMPLATE" "$OUTPUT_YAML" "${src_files[@]}" || { warn "merge-clash.py 失败"; return 1; }
+  python3 "$FILTER_PY" "$OUTPUT_YAML" -t 8 -w 15 2>&1 | sed 's/^/  /' || warn "health check 失败，使用未过滤配置"
   python3 "$GEN_PY" --proxy-yaml "$OUTPUT_YAML" --configs "$CONFIGS_DIR" --output "$OUTPUT_JSON" || { warn "generate-config.py 失败"; return 1; }
   if command -v systemctl &>/dev/null; then
     sudo systemctl restart sing-box 2>/dev/null || sudo systemctl restart sing-box-chromego 2>/dev/null || true
@@ -189,6 +191,13 @@ main() {
   python3 "$MERGE_PY" "$TEMPLATE" "$OUTPUT_YAML" "${DOWNLOADED_FILES[@]}" || { err "merge-clash.py 失败"; return 1; }
   local n; n="$(grep -c '^- name:' "$OUTPUT_YAML" 2>/dev/null || echo 0)"
   ok "合并完成，节点数: $n"
+
+  # Phase 4: 健康检查（TCP 存活检测过滤死节点）
+  echo "  健康检查..."
+  python3 "$FILTER_PY" "$OUTPUT_YAML" -t 8 -w 15 2>&1 | sed 's/^/  /' || warn "health check 失败，使用未过滤配置"
+  local n2; n2="$(grep -c '^- name:' "$OUTPUT_YAML" 2>/dev/null || echo 0)"
+  local dead=$((n - n2))
+  ok "健康检查完成: ${n} → ${n2} (死亡 ${dead})"
 }
 
 main "$@"

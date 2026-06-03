@@ -65,6 +65,16 @@ source scripts/proxy/free.sh --test    # 只扫描不设置
 | `free.sh` | 扫描 tailnet 自动配置代理 |
 | `config.yaml` | fetch.sh 的输出文件（gitignored） |
 
+## 相关工具
+
+### Aggregator
+
+[`wzdnzd/aggregator`](https://github.com/wzdnzd/aggregator)（7K stars）— 全自动代理池流水线，可替代本项目的 `fetch.sh` + `merge.py`：
+
+- 订阅聚合 → 去重 → 存活检测 → 按协议分类 → 推送到 Gist/PasteGG/Imperial
+- 需要自建 runner 或 GitHub Actions 驱动
+- 不能替代 `free.sh`（tailnet 专用）
+
 ## 依赖
 
 - tailnet 接入（free.sh 需访问 tailscale 节点）

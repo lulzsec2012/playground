@@ -18,6 +18,19 @@ import yaml
 import copy
 
 
+def get_proxy_endpoint(p):
+    if not isinstance(p, dict):
+        return None
+    server = p.get("server", "") or ""
+    port = p.get("port", 0) or 0
+    if server and port:
+        try:
+            return (server, int(port))
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
 def main():
     if len(sys.argv) < 4:
         print(
@@ -45,7 +58,7 @@ def main():
     after_rules = template[rules_idx:]
 
     # ---- 3. 提取模板自有节点 ----
-    rc_match = re.search(r"proxies:\n((?:\s+- .*\n?)*)", proxies_section)
+    rc_match = re.search(r'proxies:\n((?:\s+- .*\n?)*)', proxies_section)
     rc_proxies_text = rc_match.group(1) if rc_match else ""
 
     # 用 yaml 解析模板中的 proxies
@@ -60,6 +73,7 @@ def main():
     # ---- 4. 用 yaml 解析每个源文件，提取 proxies ----
     all_proxies = {}  # {name: proxy_dict}
     seen_names = set()
+    seen_endpoints = set()  # {(server, port)} for endpoint-based dedup
 
     # 先加入模板自有节点（优先级高）
     for p in rc_proxies:
@@ -67,6 +81,9 @@ def main():
             name = p["name"]
             all_proxies[name] = copy.deepcopy(p)
             seen_names.add(name)
+            ep = get_proxy_endpoint(p)
+            if ep:
+                seen_endpoints.add(ep)
 
     # 再处理各源
     for src_path in source_paths:
@@ -75,6 +92,41 @@ def main():
                 raw = f.read()
         except (IOError, OSError) as e:
             print(f"  跳过 [{src_path}]: {e}", file=sys.stderr)
+            continue
+
+        # 找到 proxies: 段并提取
+        pidx = raw.find("proxies:")
+        if pidx < 0:
+            continue
+
+        # 提取从 proxies: 到下一个顶层 key 或文件结束
+        rest = raw[pidx:]
+        proxies_yaml = rest
+        # 去掉 proxies: 后的下一个顶层 key
+        for m in re.finditer(r"\n[a-z_][-a-z_0-9]*:", rest):
+            nxt = m.start()
+            if nxt > 0:
+                proxies_yaml = rest[:nxt]
+                break
+
+        try:
+            data = yaml.safe_load(proxies_yaml)
+            if not data or "proxies" not in data:
+                continue
+            for p in data["proxies"]:
+                if isinstance(p, dict) and "name" in p:
+                    name = p["name"]
+                    if name in seen_names:
+                        continue
+                    ep = get_proxy_endpoint(p)
+                    if ep and ep in seen_endpoints:
+                        continue
+                    all_proxies[name] = copy.deepcopy(p)
+                    seen_names.add(name)
+                    if ep:
+                        seen_endpoints.add(ep)
+        except yaml.YAMLError as e:
+            print(f"  解析失败 [{src_path}]: {e}", file=sys.stderr)
             continue
 
         # 找到 proxies: 段并提取
