@@ -1,0 +1,3 @@
+[submodule "scripts/opencode"]
+	path = scripts/opencode
+	url = git@github.com:lulzsec2012/opencode_config.git

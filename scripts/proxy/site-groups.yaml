@@ -1,0 +1,81 @@
+# Site routing groups for sing-box config generation
+#
+# Each group gets:
+#   - a urltest outbound (auto-selects best node by probing test_url)
+#   - a selector outbound (manual override in Clash Dashboard)
+#   - domain_suffix route rule sending matching traffic to the selector
+#
+# To add a new site group, just add a new entry here.
+# The key is used as the route tag prefix; keep it short and unique.
+
+yt:
+  label: "YouTube"
+  test_url: "http://cp.cloudflare.com/generate_204"
+  domains:
+    - youtube.com
+    - googlevideo.com
+    - ytimg.com
+    - youtu.be
+    - ggpht.com
+    - withgoogle.com
+
+gh:
+  label: "GitHub"
+  test_url: "http://cp.cloudflare.com/generate_204"
+  domains:
+    - github.com
+    - githubassets.com
+    - raw.githubusercontent.com
+    - githubusercontent.com
+    - github.io
+    - githubapp.com
+
+tg:
+  label: "Telegram"
+  test_url: "http://cp.cloudflare.com/generate_204"
+  domains:
+    - t.me
+    - telegram.org
+    - telegram.me
+    - telesco.pe
+
+ai:
+  label: "AI"
+  test_url: "http://cp.cloudflare.com/generate_204"
+  domains:
+    - openai.com
+    - chatgpt.com
+    - ai.com
+    - copilot.microsoft.com
+    - bing.com
+
+gg:
+  label: "Google"
+  test_url: "http://cp.cloudflare.com/generate_204"
+  domains:
+    - google.com
+    - googleapis.com
+    - gstatic.com
+    - googleusercontent.com
+    - google-analytics.com
+    - googlesyndication.com
+    - doubleclick.net
+
+docker:
+  label: "Docker Hub"
+  test_url: "http://cp.cloudflare.com/generate_204"
+  domains:
+    - docker.com
+    - docker.io
+    - hub.docker.com
+    - registry.docker.com
+    - registry-1.docker.io
+    - production.cloudflare.docker.com
+
+hf:
+  label: "Hugging Face"
+  test_url: "http://cp.cloudflare.com/generate_204"
+  domains:
+    - huggingface.co
+    - hf.co
+    - hf.space

@@ -1,12 +1,16 @@
-# Generated data files
-data/
-!data/.gitkeep
-
-# Legacy paths (pre-restructure)
+# Temp downloaded source files
 .tmp/
+
+# ChromeGo downloaded configs (xray, hysteria, singbox, etc.)
 chromego_configs/
+
+# Generated sing-box config
 config.json
+
+# Merged Clash YAML from fetch.sh
 config.yaml
+
+# Other generated files
 *cache.json
 merged-*.yaml
 merged-*.json
