@@ -154,7 +154,11 @@ main() {
         PROTO_DIR="$OUTPUT_DIR/$name"
         if [ -d "$PROTO_DIR" ]; then
             count=$(find "$PROTO_DIR" -type f | wc -l)
-            [ "$count" -gt 0 ] && ok "$name: $count batches" || warn "$name: none available"
+            if [ "$count" -gt 0 ]; then
+                ok "$name: $count batches"
+            else
+                warn "$name: none available"
+            fi
         else
             warn "$name: none available"
         fi

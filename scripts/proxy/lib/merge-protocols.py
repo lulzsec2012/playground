@@ -358,7 +358,7 @@ def extract_servers(configs_dir, output_dir):
                             {
                                 "source": fn,
                                 "protocol": f"clash-{p.get('type', '?')}",
-                                "server": f'{p.get("server", "")}:{p.get("port", "")}',
+                                "server": f"{p.get('server', '')}:{p.get('port', '')}",
                                 "name": p.get("name", ""),
                             }
                         )
@@ -472,10 +472,10 @@ def main():
     print()
     print("✅ 合并完成")
     print(f"   输出目录: {output_dir}")
-    print(f"   merged-clash.yaml   — Clash Meta 聚合配置（可直接用于 mihomo）")
-    print(f"   merged-xray.json    — Xray 聚合配置（多 outbound + round-robin）")
-    print(f"   merged-singbox.json — Sing-box 聚合配置（多 outbound + urltest）")
-    print(f"   servers.json        — 所有服务器参考清单")
+    print("   merged-clash.yaml   — Clash Meta 聚合配置（可直接用于 mihomo）")
+    print("   merged-xray.json    — Xray 聚合配置（多 outbound + round-robin）")
+    print("   merged-singbox.json — Sing-box 聚合配置（多 outbound + urltest）")
+    print("   servers.json        — 所有服务器参考清单")
 
 
 if __name__ == "__main__":

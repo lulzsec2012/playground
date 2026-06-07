@@ -123,7 +123,7 @@ for entry in "${URLS[@]}"; do
     fi
 
     if [[ "$code" == "000" ]]; then
-        printf "${RED}FAIL${NC} timeout\n"
+        printf '%sFAIL%s timeout\n' "$RED" "$NC"
         ((fail++))
         $VERBOSE && curl -v --connect-timeout 2 --max-time 4 \
             -x "$PROXY" "$url" 2>&1 | head -5 >&2

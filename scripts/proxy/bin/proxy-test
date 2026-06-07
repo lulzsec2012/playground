@@ -144,4 +144,12 @@ if ! $MACHINE; then
     echo "  -------"
     echo "  Total: ${total}  |  ${GREEN}OK: ${ok}${NC}  |  ${RED}FAIL: ${fail}${NC}"
     echo ""
+    echo "  ── 数字说明 ──"
+    echo "  HTTP 204 = 连接成功无内容 (Google/YouTube 连通性检测专用)"
+    echo "  HTTP 200 = 请求成功"
+    echo "  HTTP 3xx = 重定向 (通常正常)"
+    echo "  HTTP 000 = 连接失败 (超时/DNS/连接被拒)"
+    echo "  (2.87s)  = 响应耗时，越短越好"
+    echo "  OK判定   = HTTP 2xx/3xx 都算通过"
+    echo ""
 fi

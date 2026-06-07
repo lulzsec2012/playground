@@ -11,9 +11,9 @@
   4. 用 yaml.dump 重新输出 proxies（缩进统一，格式正确）
   5. 找出"终端组"并填入所有免费节点名
 """
+
 import re
 import sys
-import unicodedata
 import yaml
 import copy
 
@@ -58,7 +58,7 @@ def main():
     after_rules = template[rules_idx:]
 
     # ---- 3. 提取模板自有节点 ----
-    rc_match = re.search(r'proxies:\n((?:\s+- .*\n?)*)', proxies_section)
+    rc_match = re.search(r"proxies:\n((?:\s+- .*\n?)*)", proxies_section)
     rc_proxies_text = rc_match.group(1) if rc_match else ""
 
     # 用 yaml 解析模板中的 proxies

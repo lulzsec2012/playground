@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""
+Real-time proxy group health monitor with auto-failover.
+
+Every N seconds:
+  1. Read node-ranking.json to get per-group URLs and ranked node lists
+  2. Test each group's URL via SOCKS5 (through current selector)
+  3. If HTTP status is not 200/204/301/302:
+     a. Try each remaining node in the group's ranked list
+     b. Switch selector to the first working node
+     c. Record failure in history
+  4. If OK → record success in history
+  5. Write updated history back to node-ranking.json
+
+Usage:
+  proxy-healthd                       # run once
+  proxy-healthd --daemon              # run continuously every 5 minutes
+  proxy-healthd --daemon --interval 300
+
+Cron alternative (every 5 minutes):
+  */5 * * * * proxy-healthd
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROXY_DIR = os.path.dirname(SCRIPT_DIR)
+DATA_DIR = os.path.join(PROXY_DIR, "data")
+RANKING_FILE = os.path.join(DATA_DIR, "node-ranking.json")
+CONFIG_DIR = os.path.join(PROXY_DIR, "config")
+SITE_GROUPS_FILE = os.path.join(CONFIG_DIR, "priority-sites.yaml")
+
+DEFAULT_API = "http://127.0.0.1:9090"
+SOCKS5_ADDR = "socks5h://127.0.0.1:1080"
+HEALTH_TIMEOUT = 10
+
+
+def _load_yaml(path):
+    import yaml
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def _http_ok(code):
+    return code in (200, 204, 301, 302, 307, 308)
+
+
+def _test_via_socks5(url, timeout=HEALTH_TIMEOUT):
+    try:
+        result = subprocess.run(
+            ["curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
+             "--connect-timeout", str(timeout // 2),
+             "--max-time", str(timeout),
+             "-x", SOCKS5_ADDR, url],
+            capture_output=True, timeout=timeout + 2,
+        )
+        out = result.stdout.decode().strip()
+        parts = out.split(":")
+        if len(parts) == 2 and parts[0].isdigit():
+            return int(parts[0]), float(parts[1])
+        return 0, 999.0
+    except Exception:
+        return 0, 999.0
+
+
+def _switch_selector(api, selector, target):
+    try:
+        data = json.dumps({"name": target}).encode()
+        req = urllib.request.Request(
+            f"{api}/proxies/{selector}",
+            data=data, method="PUT",
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except Exception:
+        return False
+
+
+def _get_selector_now(api, selector):
+    try:
+        url = f"{api}/proxies/{selector}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            return data.get("now", "")
+    except Exception:
+        return ""
+
+
+def check_group(key, info, ranking, api):
+    """Check a single group and auto-failover if needed. Returns (changed, any_working)."""
+    rank_url = info.get("rank_url")
+    max_nodes = info.get("max_nodes", 0)
+    if not rank_url or max_nodes <= 0:
+        return False, True
+
+    site = ranking.get("sites", {}).get(key)
+    if not site:
+        return False, True
+
+    ranked = site.get("tags", [])
+    history = site.get("history", {})
+    selector_tag = f"{key}-selector"
+    any_changed = False
+
+    # Test current state
+    code, delay = _test_via_socks5(rank_url)
+    current_node = _get_selector_now(api, selector_tag)
+
+    if _http_ok(code):
+        if current_node in ranked:
+            _update_history(history, current_node, True)
+        return False, True
+
+    # Current node failed
+    _update_history(history, current_node, False)
+    print(f"  ⚠️  {key} ({rank_url}) → HTTP {code} via {current_node}")
+
+    if not ranked:
+        print(f"  ❌ {key} → no ranked alternatives in node-ranking.json")
+        return False, False
+
+    # Try remaining ranked nodes
+    for node in ranked:
+        if node == current_node:
+            continue
+        if not _switch_selector(api, selector_tag, node):
+            continue
+        time.sleep(0.5)
+
+        retry_code, retry_delay = _test_via_socks5(rank_url)
+        if _http_ok(retry_code):
+            _update_history(history, node, True)
+            print(f"  ✅ {key} → switched to {node} (HTTP {retry_code}, {retry_delay:.2f}s)")
+            any_changed = True
+            break
+        else:
+            _update_history(history, node, False)
+            print(f"  ❌ {key} → {node} also failed (HTTP {retry_code})")
+    else:
+        print(f"  ❌ {key} → ALL nodes failed! No working node found.")
+
+    return any_changed, _http_ok(code)  # code is from first test, which failed
+
+
+def _update_history(history, tag, success):
+    if tag not in history:
+        history[tag] = {"ok": 0, "fail": 0, "last_ok": None, "last_fail": None}
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    if success:
+        history[tag]["ok"] += 1
+        history[tag]["last_ok"] = now
+    else:
+        history[tag]["fail"] += 1
+        history[tag]["last_fail"] = now
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Proxy group health monitor with auto-failover")
+    parser.add_argument("--daemon", action="store_true", help="Run continuously")
+    parser.add_argument("--interval", type=int, default=300, help="Check interval in seconds (default 300)")
+    parser.add_argument("--api", default=DEFAULT_API, help=f"Clash API URL (default {DEFAULT_API})")
+    args = parser.parse_args()
+
+    api = args.api
+
+    # Read site groups config
+    if not os.path.isfile(SITE_GROUPS_FILE):
+        print(f"No config: {SITE_GROUPS_FILE}", file=sys.stderr)
+        return 1
+
+    site_groups = _load_yaml(SITE_GROUPS_FILE).get("route_groups", {})
+
+    while True:
+        start = time.time()
+
+        if not os.path.isfile(RANKING_FILE):
+            print(f"No ranking file: {RANKING_FILE}, run proxy-rank first", file=sys.stderr)
+            if not args.daemon:
+                return 1
+            time.sleep(args.interval)
+            continue
+
+        try:
+            with open(RANKING_FILE) as f:
+                ranking = json.load(f)
+        except Exception as e:
+            print(f"Cannot read ranking: {e}", file=sys.stderr)
+            if not args.daemon:
+                return 1
+            time.sleep(args.interval)
+            continue
+
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+        any_change = False
+        all_healthy = True
+
+        print(f"\n[{ts}] proxy-healthd: checking {len(site_groups)} groups")
+
+        for key, info in site_groups.items():
+            changed, ok = check_group(key, info, ranking, api)
+            any_change = any_change or changed
+            all_healthy = all_healthy and ok
+
+        # Save updated history
+        try:
+            with open(RANKING_FILE, "w") as f:
+                json.dump(ranking, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"  Cannot save ranking: {e}", file=sys.stderr)
+
+        if any_change:
+            print(f"  [{ts}] Some groups were failovered")
+        elif all_healthy:
+            print(f"  [{ts}] All groups healthy")
+        else:
+            print(f"  [{ts}] Some groups have no working nodes (see above)")
+
+        if not args.daemon:
+            break
+
+        elapsed = time.time() - start
+        sleep = max(1, args.interval - int(elapsed))
+        time.sleep(sleep)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

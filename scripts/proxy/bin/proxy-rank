@@ -1,0 +1,358 @@
+#!/usr/bin/env python3
+"""
+Rank all proxy nodes by speed AND HTTP status. Generate per-site ranked node lists.
+
+Process:
+  1. Global speed test (Clash API /delay, parallel)
+  2. For each site group:
+     - Get candidates from global ranking
+     - Switch selector to each candidate, test via SOCKS5
+     - Only keep nodes returning 200/204/301/302
+     - Sort by SOCKS5-measured delay
+     - Record success/fail history
+  3. Save ranking to data/node-ranking.json
+
+Usage:
+  proxy-rank                       # run ranking, save to data/node-ranking.json
+  proxy-rank --api http://...      # custom Clash API endpoint
+  proxy-rank --speed-url ...       # custom speed test URL
+
+Cron (daily at 15:00):
+  0 15 * * * proxy-rank 2>> /tmp/proxy-rank.log
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROXY_DIR = os.path.dirname(SCRIPT_DIR)
+DATA_DIR = os.path.join(PROXY_DIR, "data")
+RANKING_FILE = os.path.join(DATA_DIR, "node-ranking.json")
+CONFIG_DIR = os.path.join(PROXY_DIR, "config")
+SITE_GROUPS_FILE = os.path.join(CONFIG_DIR, "priority-sites.yaml")
+
+DEFAULT_API = "http://127.0.0.1:9090"
+SPEED_URL = "http://cp.cloudflare.com/generate_204"
+SOCKS5_ADDR = "socks5h://127.0.0.1:1080"
+TIMEOUT_MS = 5000
+MAX_WORKERS = 20
+TOP_N_FOR_SITE_TEST = 32
+SWITCH_DELAY = 0.5  # seconds to wait after selector switch
+
+
+def _load_yaml(path):
+    import yaml
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def _clash_get(path, api):
+    url = f"{api}{path}"
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read())
+
+
+def _node_delay(name, url, timeout_ms, api):
+    try:
+        encoded = urllib.parse.quote(name, safe="")
+        test_url = f"{api}/proxies/{encoded}/delay?url={urllib.parse.quote(url, safe='')}&timeout={timeout_ms}"
+        req = urllib.request.Request(test_url)
+        with urllib.request.urlopen(req, timeout=timeout_ms // 1000 + 2) as resp:
+            d = json.loads(resp.read())
+            return d.get("delay", -1)
+    except Exception:
+        return -1
+
+
+def _switch_selector(api, selector, target):
+    try:
+        data = json.dumps({"name": target}).encode()
+        req = urllib.request.Request(
+            f"{api}/proxies/{selector}",
+            data=data, method="PUT",
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except Exception:
+        return False
+
+
+def _test_via_socks5(url, timeout=10):
+    try:
+        result = subprocess.run(
+            ["curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
+             "--connect-timeout", str(timeout // 2),
+             "--max-time", str(timeout),
+             "-x", SOCKS5_ADDR, url],
+            capture_output=True, timeout=timeout + 2,
+        )
+        out = result.stdout.decode().strip()
+        parts = out.split(":")
+        if len(parts) == 2 and parts[0].isdigit():
+            return int(parts[0]), float(parts[1])
+        return 0, 999.0
+    except subprocess.TimeoutExpired:
+        return 0, 999.0
+    except Exception:
+        return 0, 999.0
+
+
+def _http_ok(code):
+    return code in (200, 204, 301, 302, 307, 308)
+
+
+def read_site_groups():
+    if os.path.isfile(SITE_GROUPS_FILE):
+        data = _load_yaml(SITE_GROUPS_FILE)
+        if data and isinstance(data, dict) and "route_groups" in data:
+            return data["route_groups"]
+    print(f"No valid priority-sites.yaml found at {SITE_GROUPS_FILE}", file=sys.stderr)
+    return {}
+
+
+def get_all_nodes(api):
+    try:
+        data = _clash_get("/proxies", api)
+    except Exception as e:
+        print(f"Cannot connect to Clash API: {e}", file=sys.stderr)
+        return []
+
+    pd = data.get("proxies", data)
+    nodes = []
+    for name, info in pd.items():
+        if not isinstance(info, dict):
+            continue
+        t = info.get("type", "")
+        if t in ("Selector", "Fallback", "URLTest", "Direct", "Compatible", "LoadBalance", "Block", "DNS"):
+            continue
+        nodes.append(name)
+    return nodes
+
+
+def rank_global(nodes, api, speed_url=SPEED_URL):
+    results = []
+    total = len(nodes)
+
+    def test(name):
+        delay = _node_delay(name, speed_url, TIMEOUT_MS, api)
+        return (name, delay)
+
+    print(f"\n  Global speed test: {total} nodes (timeout={TIMEOUT_MS}ms, workers={MAX_WORKERS})")
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = {ex.submit(test, n): n for n in nodes}
+        done = 0
+        for f in as_completed(futures):
+            done += 1
+            name, delay = f.result()
+            if delay >= 0:
+                results.append((name, delay))
+            if done % 20 == 0 or done == total:
+                print(f"\r    Progress: {done}/{total}", end="", file=sys.stderr)
+
+    print(file=sys.stderr)
+    results.sort(key=lambda x: x[1])
+    print(f"    OK: {len(results)}/{total} nodes responded")
+    return [{"tag": r[0], "delay_ms": r[1]} for r in results]
+
+
+def rank_site_http(global_ranked, rank_url, max_nodes, api, selector_tag, history):
+    """
+    Test candidate nodes by switching selector and testing via SOCKS5.
+    Returns (tags, updated_history).
+    """
+    if not global_ranked:
+        return [], history
+
+    candidates = [e["tag"] for e in global_ranked[:TOP_N_FOR_SITE_TEST]]
+    good = []
+    bad = []
+
+    print(f"\n  HTTP status test ({rank_url}): {len(candidates)} nodes")
+
+    for i, node in enumerate(candidates):
+        # Switch selector to this node
+        _switch_selector(api, selector_tag, node)
+        time.sleep(SWITCH_DELAY)
+
+        # Test via SOCKS5
+        code, delay = _test_via_socks5(rank_url)
+
+        if _http_ok(code):
+            good.append((node, delay))
+            print(f"\r    {i+1}/{len(candidates)}: {node[:35]:35s} → HTTP {code} {delay:.2f}s ✅", end="", file=sys.stderr)
+            _update_history(history, node, True)
+        else:
+            bad.append((node, code))
+            print(f"\r    {i+1}/{len(candidates)}: {node[:35]:35s} → HTTP {code} ❌", end="", file=sys.stderr)
+            _update_history(history, node, False)
+
+        if len(good) >= max_nodes:
+            break
+
+    print(file=sys.stderr)
+
+    # Sort good nodes by SOCKS5 delay
+    good.sort(key=lambda x: x[1])
+
+    # Switch back to the first good node
+    if good and good[0][0] != candidates[0]:
+        _switch_selector(api, selector_tag, good[0][0])
+        time.sleep(SWITCH_DELAY)
+
+    result_tags = [g[0] for g in good[:max_nodes]]
+    print(f"    Good: {len(result_tags)}/{len(candidates)} nodes passed HTTP check")
+
+    return result_tags, history
+
+
+def _load_history(existing_ranking, key):
+    """Load history for a site group from existing ranking file."""
+    if not existing_ranking:
+        return {}
+    sites = existing_ranking.get("sites", {})
+    site = sites.get(key, {})
+    return site.get("history", {})
+
+
+def _update_history(history, tag, success):
+    if tag not in history:
+        history[tag] = {"ok": 0, "fail": 0, "last_ok": None, "last_fail": None}
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    if success:
+        history[tag]["ok"] += 1
+        history[tag]["last_ok"] = now
+    else:
+        history[tag]["fail"] += 1
+        history[tag]["last_fail"] = now
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Rank proxy nodes by speed and HTTP status")
+    parser.add_argument("--api", default=DEFAULT_API, help=f"Clash API URL (default {DEFAULT_API})")
+    parser.add_argument("--speed-url", default=SPEED_URL, help=f"Speed test URL (default {SPEED_URL})")
+    parser.add_argument("--output", default=RANKING_FILE, help=f"Output path (default {RANKING_FILE})")
+    parser.add_argument("--skip-global", action="store_true", help="Skip global ranking, use existing")
+    args = parser.parse_args()
+
+    api = args.api
+    speed_url = args.speed_url
+    ranking_path = args.output
+
+    # Load existing ranking (for history preservation)
+    existing_ranking = None
+    if os.path.isfile(ranking_path):
+        try:
+            with open(ranking_path) as f:
+                existing_ranking = json.load(f)
+        except Exception:
+            pass
+
+    # Read site groups
+    site_groups = read_site_groups()
+    if not site_groups:
+        print("No site groups found, running global ranking only")
+
+    # Get all nodes
+    all_nodes = get_all_nodes(api)
+    if not all_nodes:
+        print("No nodes found. Is sing-box running with Clash API enabled?", file=sys.stderr)
+        return 1
+
+    print(f"\n{'='*60}")
+    print(f"proxy-rank — Node Ranking System")
+    print(f"{'='*60}")
+    print(f"API: {api}")
+    print(f"Speed URL: {speed_url}")
+    print(f"SOCKS5: {SOCKS5_ADDR}")
+    print(f"Nodes: {len(all_nodes)}")
+    print(f"Sites: {len(site_groups)} groups")
+
+    ranking = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "settings": {
+            "speed_url": speed_url,
+            "timeout_ms": TIMEOUT_MS,
+            "max_workers": MAX_WORKERS,
+        },
+        "global": None,
+        "sites": {},
+    }
+
+    # Step 1: Global ranking
+    if not args.skip_global:
+        print(f"\n--- Step 1: Global Speed Ranking ---")
+        global_ranked = rank_global(all_nodes, api, speed_url)
+        ranking["global"] = global_ranked
+        print(f"  Global ranking: {len(global_ranked)} nodes")
+    else:
+        if existing_ranking:
+            global_ranked = existing_ranking.get("global", [])
+            if not global_ranked:
+                print("Existing ranking has no global data", file=sys.stderr)
+                return 1
+            ranking["global"] = global_ranked
+            print(f"  Reusing existing global ranking: {len(global_ranked)} nodes")
+        else:
+            print("No existing ranking and --skip-global set", file=sys.stderr)
+            return 1
+
+    # Step 2: Per-site HTTP status ranking
+    print(f"\n--- Step 2: Per-Site HTTP Status Ranking ---")
+
+    for key, info in site_groups.items():
+        rank_url = info.get("rank_url")
+        max_nodes = info.get("max_nodes", 0)
+
+        if not rank_url or max_nodes <= 0:
+            print(f"\n  [{key}] Skipping (no rank_url or max_nodes)")
+            continue
+
+        selector_tag = f"{key}-selector"
+        history = _load_history(existing_ranking, key)
+
+        print(f"\n  [{key}] {info.get('label', key)}")
+        print(f"    URL: {rank_url}")
+        print(f"    Max: {max_nodes} nodes")
+
+        site_tags, updated_history = rank_site_http(
+            global_ranked, rank_url, max_nodes, api, selector_tag, history
+        )
+
+        ranking["sites"][key] = {
+            "rank_url": rank_url,
+            "tags": site_tags,
+            "history": updated_history,
+        }
+
+        print(f"    Selected: {len(site_tags)} nodes")
+
+    # Step 3: Save
+    os.makedirs(os.path.dirname(ranking_path), exist_ok=True)
+    with open(ranking_path, "w") as f:
+        json.dump(ranking, f, indent=2, ensure_ascii=False)
+
+    print(f"\n{'='*60}")
+    print(f"Ranking saved: {ranking_path}")
+    print(f"  Global: {len(ranking['global'])} nodes")
+    print(f"  Sites: {list(ranking['sites'].keys())}")
+    for k, v in ranking["sites"].items():
+        print(f"    {k}: {len(v['tags'])} nodes (history: {len(v.get('history',{}))} entries)")
+    print(f"{'='*60}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

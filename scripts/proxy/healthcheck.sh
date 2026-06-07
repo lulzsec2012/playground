@@ -84,14 +84,14 @@ full_repair() {
     fi
     
     # 3. Generate new config
-    local yaml_arg=""
+    local yaml_args=()
     if [[ -f "${SCRIPT_DIR}/config.yaml" ]]; then
-        yaml_arg="--proxy-yaml ${SCRIPT_DIR}/config.yaml"
+        yaml_args=(--proxy-yaml "${SCRIPT_DIR}/config.yaml")
     fi
     info "Generating config..."
     python3 "${SCRIPT_DIR}/chromego-gen-config.py" \
         --configs "$CONFIG_DIR" \
-        $yaml_arg \
+        "${yaml_args[@]}" \
         --output "$CONFIG_FILE" \
         --listen "0.0.0.0" --port 1080 2>&1 | while IFS= read -r line; do log "  $line"; done
     

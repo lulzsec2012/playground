@@ -28,6 +28,8 @@ route_groups:
   yt:
     label: "YouTube"
     test_url: "http://cp.cloudflare.com/generate_204"
+    rank_url: "https://www.youtube.com/generate_204"
+    max_nodes: 20
     domains:
       - youtube.com
       - googlevideo.com
@@ -39,6 +41,8 @@ route_groups:
   gh:
     label: "GitHub"
     test_url: "http://cp.cloudflare.com/generate_204"
+    rank_url: "https://github.com"
+    max_nodes: 20
     domains:
       - github.com
       - githubassets.com
@@ -50,6 +54,8 @@ route_groups:
   tg:
     label: "Telegram"
     test_url: "http://cp.cloudflare.com/generate_204"
+    rank_url: "https://telegram.org"
+    max_nodes: 15
     domains:
       - t.me
       - telegram.org
@@ -59,6 +65,8 @@ route_groups:
   ai:
     label: "AI"
     test_url: "http://cp.cloudflare.com/generate_204"
+    rank_url: "https://chatgpt.com"
+    max_nodes: 15
     domains:
       - openai.com
       - chatgpt.com
@@ -69,6 +77,8 @@ route_groups:
   gg:
     label: "Google"
     test_url: "http://cp.cloudflare.com/generate_204"
+    rank_url: "https://www.google.com/generate_204"
+    max_nodes: 15
     domains:
       - google.com
       - googleapis.com
@@ -81,6 +91,8 @@ route_groups:
   docker:
     label: "Docker Hub"
     test_url: "http://cp.cloudflare.com/generate_204"
+    rank_url: "https://www.docker.com"
+    max_nodes: 10
     domains:
       - docker.com
       - docker.io
@@ -92,6 +104,8 @@ route_groups:
   hf:
     label: "Hugging Face"
     test_url: "http://cp.cloudflare.com/generate_204"
+    rank_url: "https://huggingface.co"
+    max_nodes: 10
     domains:
       - huggingface.co
       - hf.co

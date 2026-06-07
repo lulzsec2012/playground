@@ -33,14 +33,15 @@ Usage:
 import json
 import os
 import re
-import sys
-from urllib.parse import urlparse
 
 import yaml
 
 
 CONFIGS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "chromego_configs")
 OUTPUT_PATH = os.path.join(CONFIGS_DIR, "config.json")
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+RANKING_FILE = os.path.join(DATA_DIR, "node-ranking.json")
 
 FALLBACK_KEY = "fallback"
 SITE_GROUPS_FILE = os.path.join(
@@ -52,6 +53,8 @@ _FALLBACK_SITE_GROUPS = {
     "yt": {
         "label": "YouTube",
         "test_url": "http://cp.cloudflare.com/generate_204",
+        "rank_url": "https://www.youtube.com/generate_204",
+        "max_nodes": 20,
         "domains": [
             "youtube.com",
             "googlevideo.com",
@@ -64,6 +67,8 @@ _FALLBACK_SITE_GROUPS = {
     "gh": {
         "label": "GitHub",
         "test_url": "http://cp.cloudflare.com/generate_204",
+        "rank_url": "https://github.com",
+        "max_nodes": 20,
         "domains": [
             "github.com",
             "githubassets.com",
@@ -76,6 +81,8 @@ _FALLBACK_SITE_GROUPS = {
     "tg": {
         "label": "Telegram",
         "test_url": "http://cp.cloudflare.com/generate_204",
+        "rank_url": "https://telegram.org",
+        "max_nodes": 15,
         "domains": [
             "t.me",
             "telegram.org",
@@ -86,6 +93,8 @@ _FALLBACK_SITE_GROUPS = {
     "ai": {
         "label": "AI",
         "test_url": "http://cp.cloudflare.com/generate_204",
+        "rank_url": "https://chatgpt.com",
+        "max_nodes": 15,
         "domains": [
             "openai.com",
             "chatgpt.com",
@@ -118,6 +127,59 @@ def load_site_groups(path=None):
             return data["route_groups"]
     print("No priority-sites.yaml found, using hardcoded defaults")
     return _FALLBACK_SITE_GROUPS
+
+
+def load_ranking():
+    if not os.path.isfile(RANKING_FILE):
+        return None
+    try:
+        with open(RANKING_FILE) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        print(f"  ⚠️  Cannot parse {RANKING_FILE}")
+        return None
+    return data
+
+
+def get_group_tags(key, info, all_tags, ranking, all_outbounds):
+    max_nodes = info.get("max_nodes", 0)
+    if max_nodes <= 0 or not ranking:
+        return all_tags
+
+    site_ranking = ranking.get("sites", {}).get(key)
+    if site_ranking:
+        ranked_tags = site_ranking.get("tags", [])
+        history = site_ranking.get("history", {})
+        if ranked_tags:
+            # Filter out high-failure nodes using history
+            reliable = [t for t in ranked_tags if _is_reliable(t, history, all_tags)]
+            if not reliable:
+                reliable = [t for t in ranked_tags if t in all_tags]
+            print(
+                f"  ⚡ {key}: {len(reliable)} reliable ranked nodes (max {max_nodes})"
+            )
+            return reliable[:max_nodes]
+
+    global_ranked = ranking.get("global", [])
+    if global_ranked:
+        ranked = [e["tag"] for e in global_ranked if e["tag"] in all_tags]
+        if ranked:
+            print(f"  ⚡ {key}: {len(ranked)} global-ranked nodes (max {max_nodes})")
+            return ranked[:max_nodes]
+    return all_tags
+
+
+def _is_reliable(tag, history, all_tags):
+    if tag not in all_tags:
+        return False
+    if tag not in history:
+        return True  # no history = assume reliable
+    h = history[tag]
+    total = h.get("ok", 0) + h.get("fail", 0)
+    if total == 0:
+        return True
+    fail_rate = h.get("fail", 0) / total
+    return fail_rate < 0.5
 
 
 def _mbps(val):
@@ -679,6 +741,7 @@ def generate(
     port=1080,
     dashboard_port=9090,
     site_groups=None,
+    enable_multiplex=False,
 ):
     if site_groups is None:
         site_groups = _FALLBACK_SITE_GROUPS
@@ -691,54 +754,42 @@ def generate(
     seen = set()
     counter = iter(range(100000))
 
-    converters = [
-        (
-            "Clash Meta",
-            convert_clash_meta(
-                os.path.join(configs_dir, "clash.meta2"), all_outbounds, seen, counter
-            ),
-        ),
-        (
-            "Xray",
-            convert_xray(
-                os.path.join(configs_dir, "xray"), all_outbounds, seen, counter
-            ),
-        ),
-        (
-            "Sing-box",
-            convert_singbox(
-                os.path.join(configs_dir, "singbox"), all_outbounds, seen, counter
-            ),
-        ),
-        (
-            "Hysteria2",
-            convert_hysteria2(
-                os.path.join(configs_dir, "hysteria2"), all_outbounds, seen, counter
-            ),
-        ),
-        (
-            "Hysteria",
-            convert_hysteria(
-                os.path.join(configs_dir, "hysteria"), all_outbounds, seen, counter
-            ),
-        ),
-        (
-            "Juicity",
-            convert_juicity(
-                os.path.join(configs_dir, "juicity"), all_outbounds, seen, counter
-            ),
-        ),
-        (
-            "Naiveproxy",
-            convert_naiveproxy(
-                os.path.join(configs_dir, "naiveproxy"), all_outbounds, seen, counter
-            ),
-        ),
-    ]
+    convert_clash_meta(
+        os.path.join(configs_dir, "clash.meta2"), all_outbounds, seen, counter
+    )
+    convert_xray(os.path.join(configs_dir, "xray"), all_outbounds, seen, counter)
+    convert_singbox(os.path.join(configs_dir, "singbox"), all_outbounds, seen, counter)
+    convert_hysteria2(
+        os.path.join(configs_dir, "hysteria2"), all_outbounds, seen, counter
+    )
+    convert_hysteria(
+        os.path.join(configs_dir, "hysteria"), all_outbounds, seen, counter
+    )
+    convert_juicity(os.path.join(configs_dir, "juicity"), all_outbounds, seen, counter)
+    convert_naiveproxy(
+        os.path.join(configs_dir, "naiveproxy"), all_outbounds, seen, counter
+    )
 
     clash_count = 0
     if proxy_yaml:
         clash_count = convert_clash_yaml(proxy_yaml, all_outbounds, seen, counter)
+
+    if enable_multiplex:
+        multiplex_types = {"vless", "vmess", "trojan", "shadowsocks"}
+        multiplex_count = 0
+        for ob in all_outbounds:
+            if ob["type"] in multiplex_types:
+                ob["multiplex"] = {
+                    "enabled": True,
+                    "protocol": "smux",
+                    "max_connections": 4,
+                    "min_streams": 4,
+                    "padding": False,
+                }
+                multiplex_count += 1
+        print(
+            f"Multiplex (smux) enabled: {multiplex_count}/{len(all_outbounds)} outbounds"
+        )
 
     proxy_tags = [ob["tag"] for ob in all_outbounds]
     print(f"\nTotal: {len(all_outbounds)} proxy nodes")
@@ -749,11 +800,21 @@ def generate(
         print("No usable nodes, skipping config generation")
         return False
 
+    ranking = load_ranking()
+    print()
+    if ranking:
+        print(
+            f"⚡ Node ranking loaded ({len(ranking.get('global', []))} global, "
+            f"{len(ranking.get('sites', {}))} site groups)"
+        )
+
     group_outbounds = []
 
     for key, info in site_groups.items():
         selector_tag = f"{key}-selector"
         urltest_tag = f"{key}-urltest"
+
+        group_nodes = get_group_tags(key, info, proxy_tags, ranking, all_outbounds)
 
         group_outbounds.append(
             {
@@ -767,9 +828,9 @@ def generate(
             {
                 "type": "urltest",
                 "tag": urltest_tag,
-                "outbounds": proxy_tags,
-                "url": info["test_url"],
-                "interval": "5m",
+                "outbounds": group_nodes,
+                "url": info.get("rank_url", info["test_url"]),
+                "interval": "10m",
                 "tolerance": 100,
             }
         )
@@ -779,7 +840,10 @@ def generate(
             {
                 "type": "selector",
                 "tag": f"{FALLBACK_KEY}-selector",
-                "outbounds": [f"{FALLBACK_KEY}-urltest"] + proxy_tags,
+                "outbounds": [
+                    f"{FALLBACK_KEY}-urltest",
+                ]
+                + proxy_tags,
                 "default": f"{FALLBACK_KEY}-urltest",
             },
             {
@@ -787,7 +851,7 @@ def generate(
                 "tag": f"{FALLBACK_KEY}-urltest",
                 "outbounds": proxy_tags,
                 "url": "http://cp.cloudflare.com/generate_204",
-                "interval": "5m",
+                "interval": "10m",
                 "tolerance": 50,
             },
         ]
@@ -877,7 +941,7 @@ def generate(
     for ob in all_outbounds:
         t = ob["type"]
         by_type[t] = by_type.get(t, 0) + 1
-    print(f"\nNode type distribution:")
+    print("\nNode type distribution:")
     for t, c in sorted(by_type.items()):
         print(f"  {t:15s} {c}")
     print()
@@ -922,6 +986,12 @@ def main():
         default=None,
         help="Site groups YAML config path (default: site-groups.yaml next to script)",
     )
+    parser.add_argument(
+        "--enable-multiplex",
+        action="store_true",
+        help="Enable multiplex (smux) for TCP outbounds (vless/vmess/trojan/ss) "
+        "- reduces connection startup latency for video streaming",
+    )
     args = parser.parse_args()
 
     site_groups = load_site_groups(args.site_groups)
@@ -933,6 +1003,7 @@ def main():
         port=args.port,
         dashboard_port=args.dashboard_port,
         site_groups=site_groups,
+        enable_multiplex=args.enable_multiplex,
     )
 
     print(f"\nStart:   sing-box run -c {args.output}")

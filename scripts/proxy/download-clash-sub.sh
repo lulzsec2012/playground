@@ -20,7 +20,6 @@ PROXY="${PROXY:-socks5h://127.0.0.1:1080}"
 OUTPUT="${OUTPUT:-$SCRIPT_DIR/merged-clash.yaml}"
 TIMEOUT="${TIMEOUT:-15}"
 DO_TEST=false
-DO_ADD=false
 
 usage() { sed -n 's/^# *//p' "$0" | sed '1,2d'; exit 0; }
 [[ $# -eq 0 ]] && usage
@@ -32,7 +31,6 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -h|--help) usage ;;
         --test) DO_TEST=true; shift ;;
-        --add) DO_ADD=true; shift ;;
         *) echo "Unknown: $1"; exit 1 ;;
     esac
 done
@@ -41,6 +39,7 @@ if [[ -t 1 ]]; then
     GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
     CYAN='\033[0;36m'; NC='\033[0m'
 else
+    # shellcheck disable=SC2034
     GREEN=''; YELLOW=''; RED=''; CYAN=''; NC=''
 fi
 
@@ -74,10 +73,11 @@ echo "  Saved to ${CYAN}${OUTPUT}${NC}"
 
 # --- Parse proxies ---
 parse_proxies() {
-    python3 -c '
-import sys, yaml, json
+    PY_OUTPUT="$OUTPUT" python3 -c '
+import os, sys, yaml, json
+path = os.environ["PY_OUTPUT"]
 try:
-    with open("'"$OUTPUT"'") as f:
+    with open(path) as f:
         data = yaml.safe_load(f)
 except Exception as e:
     print(f"Error: {e}", file=sys.stderr)
@@ -102,7 +102,7 @@ if ! parse_proxies > "$tmp_json" 2>/tmp/parse_err; then
         echo "  ${YELLOW}yaml module not available, trying yq...${NC}"
         # Fallback: use grep/sed to extract proxy names
         echo "Proxies:" > "$tmp_json"
-        grep -E '^  - name:' "$OUTPUT" | sed 's/  - name: //' | while read name; do
+        grep -E '^  - name:' "$OUTPUT" | sed 's/  - name: //' | while read -r name; do
             type=$(grep -A5 "  - name: $name" "$OUTPUT" | grep 'type:' | head -1 | sed 's/.*type: //')
             echo "  - name: $name, type: $type"
         done
@@ -114,9 +114,10 @@ if ! parse_proxies > "$tmp_json" 2>/tmp/parse_err; then
 fi
 
 # Display proxy summary
-python3 -c '
-import json, sys
-with open("'"$tmp_json"'") as f:
+PY_TMP_JSON="$tmp_json" python3 -c '
+import json, os, sys
+path = os.environ["PY_TMP_JSON"]
+with open(path) as f:
     raw = f.read()
 try:
     proxies = json.loads(raw)
@@ -140,7 +141,7 @@ for i, p in enumerate(proxies):
     typ = p.get("type", "?")
     server = p.get("server", "")
     port = p.get("port", "")
-    plugin = f" ({p.get('plugin', '')})" if "plugin" in p else ""
+    plugin = f" ({p.get("plugin", "")})" if "plugin" in p else ""
     print(f"    {i+1:2d}. [{typ}] {name}{plugin}")
     if server:
         print(f"        {server}:{port}")
@@ -153,10 +154,11 @@ if $DO_TEST; then
     echo "  Testing proxies via sing-box API ${CYAN}${api}${NC}..."
     echo ""
 
-    python3 -c '
-import json, sys, subprocess, re
+    PY_TMP_JSON="$tmp_json" python3 -c '
+import json, os, sys, subprocess
 
-with open("'"$tmp_json"'") as f:
+path = os.environ["PY_TMP_JSON"]
+with open(path) as f:
     raw = f.read()
 try:
     proxies = json.loads(raw)
