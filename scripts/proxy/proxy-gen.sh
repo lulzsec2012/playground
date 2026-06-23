@@ -101,13 +101,37 @@ echo "[3/3] 生成 sing-box 配置..."
 
 CLASH_ARGS=()
 if [ -f "$CLASH_YAML" ]; then
-    CLASH_ARGS=(--clash-yaml "$CLASH_YAML")
+    CLASH_ARGS=(--proxy-yaml "$CLASH_YAML")
 fi
 
 python3 "$SCRIPT_DIR/lib/generate-config.py" \
     --configs "$CONFIGS_DIR" \
     --output "$OUTPUT" \
     "${CLASH_ARGS[@]}"
+
+# 后处理：归一化 server_port 为整数（某些 Clash 源导出字符串端口）
+python3 -c "
+import json, sys
+with open('$OUTPUT') as f:
+    c = json.load(f)
+fixed = 0
+for ob in c.get('outbounds', []):
+    sp = ob.get('server_port')
+    if sp is not None and isinstance(sp, str):
+        try:
+            ob['server_port'] = int(sp); fixed += 1
+        except ValueError: pass
+for ib in c.get('inbounds', []):
+    lp = ib.get('listen_port')
+    if lp is not None and isinstance(lp, str):
+        try:
+            ib['listen_port'] = int(lp); fixed += 1
+        except ValueError: pass
+if fixed:
+    with open('$OUTPUT', 'w') as f:
+        json.dump(c, f, indent=2)
+    sys.stderr.write(f'  [port-normalize] fixed {fixed} entries\n')
+"
 
 echo ""
 echo "  输出: $OUTPUT"
