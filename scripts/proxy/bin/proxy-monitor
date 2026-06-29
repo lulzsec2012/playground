@@ -1,0 +1,1062 @@
+#!/usr/bin/env python3
+"""
+proxy-monitor — 代理健康监控 + 节点诊断 + 自动修复 + 智能直连
+
+核心功能:
+  1. 站点测试 — 测试任意站点是否可通过当前代理正常打开
+  2. 节点扫描 — 遍历所有可用节点逐一测试目标站点连通性
+  3. 自动切换 — 找到可用节点自动设为选择器
+  4. 智能直连 — 检测到站点通过代理失败但直连可行时自动绕过代理
+  5. 源更新 — 所有节点均不可用时触发完整源更新 + 配置重生成
+  6. 定时监控 — cron 每 N 分钟检查，打不开的网站自动修复
+
+用法:
+  proxy-monitor status                         查看代理健康状态
+  proxy-monitor check <url>                    测试站点连通性
+  proxy-monitor scan <url>                     遍历所有节点测试目标站点
+  proxy-monitor fix <url>                      自动修复(扫描+切换+检查直连)
+  proxy-monitor bypass list                    查看直连绕过列表
+  proxy-monitor bypass add <domain>            添加直连域名
+  proxy-monitor bypass remove <domain>         移除直连域名
+  proxy-monitor bypass detect <url>            检测是否需要直连绕过
+  proxy-monitor inject                         注入直连规则到 sing-box 配置
+  proxy-monitor api                            诊断 Clash API
+  proxy-monitor watch [--daemon]               监控+自动修复(可配合 cron)
+  proxy-monitor install-cron [N]               安装定时监控(每 N 分钟)
+  proxy-monitor remove-cron                    移除定时监控
+  proxy-monitor sites [list|add|remove]        管理监控站点列表
+
+环境变量:
+  PROXY_ADDR     SOCKS5 代理地址 (默认 socks5h://127.0.0.1:1081)
+  CLASH_API      Clash API 地址  (默认 http://127.0.0.1:9090)
+  SCRIPT_DIR     proxy 脚本目录 (自动检测)
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime
+
+# ── 默认配置 ──────────────────────────────────────────────
+PROXY_ADDR = os.environ.get("PROXY_ADDR", "socks5h://127.0.0.1:1081")
+CLASH_API = os.environ.get("CLASH_API", "http://127.0.0.1:9090")
+SCRIPT_DIR = os.environ.get(
+    "SCRIPT_DIR",
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+)
+CONFIG_JSON = os.path.join(SCRIPT_DIR, "data", "chromego_configs", "config.json")
+BYPASS_FILE = "/tmp/proxy-bypass-domains.json"
+MONITOR_FILE = "/tmp/proxy-monitor-sites.json"
+LOG_FILE = "/tmp/proxy-monitor.log"
+
+TIMEOUT = 10
+
+# 默认监控站点（按权重排，Google/YouTube 最敏感）
+DEFAULT_SITES = [
+    "https://www.google.com/generate_204",
+    "https://www.youtube.com/generate_204",
+    "https://github.com",
+    "https://www.xnxx.com/",
+]
+
+# ── 终端颜色 ──────────────────────────────────────────────
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+CYAN = "\033[0;36m"
+BOLD = "\033[1m"
+NC = "\033[0m"
+
+IGNORE_COLOR = not sys.stderr.isatty() and not sys.stdout.isatty()
+if IGNORE_COLOR:
+    GREEN = RED = YELLOW = CYAN = BOLD = NC = ""
+
+
+# ══════════════════════════════════════════════════════════
+#  工具函数
+# ══════════════════════════════════════════════════════════
+
+def log(msg, level="INFO"):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"[{ts}] [{level}] {msg}\n")
+    except (PermissionError, OSError):
+        pass
+
+
+def info(msg):
+    print(f"  {CYAN}{msg}{NC}")
+    log(msg, "INFO")
+
+
+def ok(msg):
+    print(f"  {GREEN}✓{NC} {msg}")
+    log(msg, "OK")
+
+
+def warn(msg):
+    print(f"  {YELLOW}⚠{NC} {msg}", file=sys.stderr)
+    log(msg, "WARN")
+
+
+def err(msg):
+    print(f"  {RED}✗{NC} {msg}", file=sys.stderr)
+    log(msg, "ERROR")
+
+
+def http_ok(code):
+    return 200 <= code < 400
+
+
+def load_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def save_json(path, data):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# ══════════════════════════════════════════════════════════
+#  代理连通性测试
+# ══════════════════════════════════════════════════════════
+
+def test_url(url, proxy=None, timeout=TIMEOUT):
+    """通过代理测试 URL 连通性，返回 (http_code, time_seconds, error_msg)。"""
+    proxy = proxy or PROXY_ADDR
+    cmd = [
+        "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
+        "--connect-timeout", str(timeout // 2),
+        "--max-time", str(timeout),
+        "-x", proxy, url,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 2)
+        out = result.stdout.decode().strip()
+        if ":" in out:
+            parts = out.split(":")
+            if parts[0].isdigit():
+                code = int(parts[0])
+                ms = float(parts[1]) if len(parts) > 1 else 999.0
+                return code, ms, None
+        return 0, 999.0, out or "empty response"
+    except subprocess.TimeoutExpired:
+        return 0, 999.0, "timeout"
+    except Exception as e:
+        return 0, 999.0, str(e)
+
+
+def test_direct(url, timeout=TIMEOUT):
+    """不通过代理直接测试 URL。"""
+    cmd = [
+        "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
+        "--connect-timeout", str(timeout // 2),
+        "--max-time", str(timeout),
+        url,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 2)
+        out = result.stdout.decode().strip()
+        if ":" in out:
+            parts = out.split(":")
+            if parts[0].isdigit():
+                return int(parts[0]), float(parts[1]) if len(parts) > 1 else 999.0, None
+        return 0, 999.0, out or "empty"
+    except subprocess.TimeoutExpired:
+        return 0, 999.0, "timeout"
+    except Exception as e:
+        return 0, 999.0, str(e)
+
+
+# ══════════════════════════════════════════════════════════
+#  Clash API 操作
+# ══════════════════════════════════════════════════════════
+
+def clash_get(path):
+    url = f"{CLASH_API}{path}"
+    req = urllib.request.Request(url)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+    except Exception as e:
+        return None
+
+
+def clash_put(path, data):
+    url = f"{CLASH_API}{path}"
+    try:
+        payload = json.dumps(data).encode()
+        req = urllib.request.Request(url, data=payload, method="PUT",
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except Exception as e:
+        return False
+
+
+def get_leaf_nodes():
+    proxies = clash_get("/proxies") or {}
+    proxies = proxies.get("proxies", proxies)
+    leaves = {}
+    group_types = {"Selector", "Fallback", "URLTest", "Direct", "Compatible", "Pass", "Reject"}
+    for name, pdata in proxies.items():
+        if not isinstance(pdata, dict):
+            continue
+        if pdata.get("type", "") in group_types:
+            continue
+        leaves[name] = pdata
+    return leaves
+
+
+def switch_selector(selector, target):
+    return clash_put(f"/proxies/{selector}", {"name": target})
+
+
+def test_node_delay(node_name, test_url, timeout_ms=5000):
+    try:
+        encoded = urllib.parse.quote(node_name, safe="")
+        full_url = f"{CLASH_API}/proxies/{encoded}/delay"
+        params = urllib.parse.urlencode({"url": test_url, "timeout": str(timeout_ms)})
+        req = urllib.request.Request(f"{full_url}?{params}")
+        with urllib.request.urlopen(req, timeout=(timeout_ms // 1000) + 2) as resp:
+            d = json.loads(resp.read())
+            return d.get("delay", -1)
+    except Exception:
+        return -1
+
+
+# ══════════════════════════════════════════════════════════
+#  域名/URL 工具
+# ══════════════════════════════════════════════════════════
+
+def get_site_label(url):
+    parsed = urllib.parse.urlparse(url)
+    domain = parsed.netloc or parsed.path
+    return domain.replace("www.", "").split(".")[0]
+
+
+def extract_domain(url):
+    """从 URL 提取完整域名。"""
+    parsed = urllib.parse.urlparse(url)
+    domain = parsed.netloc or parsed.path
+    # 去掉端口
+    if ":" in domain:
+        domain = domain.split(":")[0]
+    return domain.lower()
+
+
+# ══════════════════════════════════════════════════════════
+#  站点监控管理
+# ══════════════════════════════════════════════════════════
+
+def load_monitor_sites():
+    data = load_json(MONITOR_FILE)
+    if isinstance(data, list):
+        return data
+    return list(DEFAULT_SITES)
+
+
+def save_monitor_sites(sites):
+    save_json(MONITOR_FILE, sites)
+    ok(f"监控站点列表已保存 ({len(sites)} 个)")
+
+
+# ══════════════════════════════════════════════════════════
+#  智能直连 (Smart Bypass) 管理
+# ══════════════════════════════════════════════════════════
+
+def load_bypass_domains():
+    """加载需要直连的域名列表。"""
+    data = load_json(BYPASS_FILE)
+    if isinstance(data, list):
+        return data
+    return []
+
+
+def save_bypass_domains(domains):
+    save_json(BYPASS_FILE, sorted(set(domains)))
+    ok(f"直连绕过列表已保存 ({len(set(domains))} 个域名)")
+
+
+def add_bypass_domain(domain):
+    """添加一个域名到直连绕过列表。"""
+    domains = load_bypass_domains()
+    domain = domain.lower().strip()
+    # 去掉 www. 前缀
+    if domain.startswith("www."):
+        domain = domain[4:]
+    if domain not in domains:
+        domains.append(domain)
+        save_bypass_domains(domains)
+        ok(f"已添加直连: {domain}")
+        return True
+    else:
+        warn(f"已在直连列表中: {domain}")
+        return False
+
+
+def remove_bypass_domain(domain):
+    domains = load_bypass_domains()
+    domain = domain.lower().strip()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    if domain in domains:
+        domains.remove(domain)
+        save_bypass_domains(domains)
+        ok(f"已移除直连: {domain}")
+        return True
+    else:
+        warn(f"不在直连列表中: {domain}")
+        return False
+
+
+def inject_bypass_rules():
+    """将直连绕过域名作为 route rule 注入到 sing-box 配置中。"""
+    domains = load_bypass_domains()
+    if not domains:
+        ok("无直连域名需要注入")
+        return True
+
+    config = load_json(CONFIG_JSON)
+    if not config:
+        err(f"无法读取 sing-box 配置: {CONFIG_JSON}")
+        return False
+
+    # 确保 route 存在
+    if "route" not in config:
+        config["route"] = {}
+    route = config["route"]
+    if "rules" not in route:
+        route["rules"] = []
+
+    # 为每个直连域名添加一条 rule，注意避免重复
+    rules = route["rules"]
+    existing_domains = set()
+    for r in rules:
+        for d in r.get("domain_suffix", []):
+            existing_domains.add(d)
+        for d in r.get("domain", []):
+            existing_domains.add(d)
+
+    added = 0
+    for domain in domains:
+        if domain not in existing_domains:
+            rules.insert(0, {
+                "domain_suffix": [domain],
+                "outbound": "direct",
+            })
+            added += 1
+            existing_domains.add(domain)
+
+    if added == 0:
+        ok(f"直连规则已存在 ({len(domains)} 个域名)")
+    else:
+        info(f"注入 {added} 条直连规则到 sing-box 配置")
+
+    # 写入配置
+    try:
+        save_json(CONFIG_JSON, config)
+
+        # 验证配置
+        result = subprocess.run(
+            ["sing-box", "check", "-c", CONFIG_JSON],
+            capture_output=True, timeout=30,
+        )
+        if result.returncode != 0:
+            err(f"配置验证失败: {result.stderr.decode()[:200]}")
+            return False
+
+        ok("配置验证通过")
+        return True
+    except Exception as e:
+        err(f"写入配置失败: {e}")
+        return False
+
+
+def restart_singbox():
+    """重启 sing-box 服务。"""
+    try:
+        # 检查 systemd
+        import subprocess
+        result = subprocess.run(
+            ["systemctl", "is-active", "sing-box-chromego"],
+            capture_output=True, timeout=10,
+        )
+        if result.returncode == 0:
+            subprocess.run(["sudo", "systemctl", "restart", "sing-box-chromego"],
+                         capture_output=True, timeout=30)
+            time.sleep(3)
+            ok("sing-box 服务已重启")
+            return True
+    except Exception:
+        pass
+
+    # 非 systemd 环境（Docker 容器等）
+    try:
+        # 停掉旧进程
+        subprocess.run(["sudo", "pkill", "-x", "sing-box"], capture_output=True, timeout=5)
+        time.sleep(2)
+
+        # 启动新进程
+        shell_cmd = f"nohup sudo sing-box run -c {CONFIG_JSON} > /tmp/singbox.log 2>&1 &"
+        subprocess.run(["bash", "-c", shell_cmd], capture_output=True, timeout=10)
+        time.sleep(3)
+
+        result = subprocess.run(["pgrep", "-x", "sing-box"], capture_output=True, timeout=5)
+        if result.returncode == 0:
+            ok(f"sing-box 已重启 (PID: {result.stdout.decode().strip()})")
+            return True
+        else:
+            err("sing-box 重启失败")
+            return False
+    except Exception as e:
+        err(f"重启 sing-box 异常: {e}")
+        return False
+
+
+def detect_bypass(url):
+    """检测一个 URL 是否需要直连绕过。
+    如果通过代理失败但直连成功 → 判定为需要绕过。
+    """
+    domain = extract_domain(url)
+    print()
+    info(f"检测直连需求: {url}")
+    print(f"  域名: {domain}")
+
+    # 1. 通过代理测试
+    code_proxy, ms_proxy, _ = test_url(url)
+    if http_ok(code_proxy):
+        ok(f"代理可达: HTTP {code_proxy} ({ms_proxy:.2f}s) → 无需直连")
+        return False
+
+    warn(f"代理不可达: HTTP {code_proxy} ({ms_proxy:.2f}s)")
+
+    # 2. 直接连接测试
+    code_direct, ms_direct, _ = test_direct(url)
+    if http_ok(code_direct):
+        ok(f"直连可达: HTTP {code_direct} ({ms_direct:.2f}s)")
+        info(f"→ 站点 {domain} 应绕过代理，添加到直连列表")
+        add_bypass_domain(domain)
+        return True
+    else:
+        warn(f"直连也不可达: HTTP {code_direct} ({ms_direct:.2f}s)")
+        info("→ 站点本身不可达，非代理问题")
+        return None
+
+
+# ══════════════════════════════════════════════════════════
+#  核心诊断功能
+# ══════════════════════════════════════════════════════════
+
+def cmd_status():
+    print()
+    info("══════════════════════════════════════")
+    info("  代理健康状态")
+    info("══════════════════════════════════════")
+    print()
+
+    # 1. sing-box 进程
+    try:
+        result = subprocess.run(["pgrep", "-x", "sing-box"], capture_output=True, timeout=5)
+        if result.returncode == 0:
+            ok(f"sing-box 运行中 (PID: {result.stdout.decode().strip()})")
+        else:
+            err("sing-box 未运行")
+            return 1
+    except Exception as e:
+        warn(f"无法检查 sing-box: {e}")
+
+    # 2. 代理端口
+    try:
+        result = subprocess.run(["ss", "-tlnp"], capture_output=True, timeout=5, text=True)
+        for port in [1080, 1081]:
+            if str(port) in result.stdout:
+                ok(f"代理端口 :{port} 正在监听")
+            else:
+                warn(f"代理端口 :{port} 未监听")
+    except Exception:
+        pass
+
+    # 3. Clash API
+    info("--- Clash API ---")
+    try:
+        data = clash_get("/")
+        if data:
+            ok(f"Clash API 可用 ({CLASH_API})")
+    except Exception as e:
+        err(f"Clash API 异常: {e}")
+
+    # 4. 站点连通性
+    info("--- 站点连通性 ---")
+    sites = load_monitor_sites()
+    all_ok = True
+    for url in sites:
+        label = get_site_label(url)
+        code, ms, err_msg = test_url(url)
+        if http_ok(code):
+            ok(f"{label:12s} HTTP {code} ({ms:.2f}s)")
+        else:
+            err(f"{label:12s} HTTP {code} ({ms:.2f}s)" +
+                (f" — {err_msg[:80]}" if err_msg else ""))
+            # 检测是否应直连
+            code_direct, _, _ = test_direct(url)
+            if http_ok(code_direct):
+                warn(f"  直连可达(HTTP {code_direct})→ 建议加入直连绕过")
+            all_ok = False
+
+    # 5. 选择器状态
+    info("--- 选择器状态 ---")
+    try:
+        proxies = clash_get("/proxies") or {}
+        proxies = proxies.get("proxies", proxies)
+        for name, pdata in sorted(proxies.items()):
+            if isinstance(pdata, dict) and pdata.get("type") == "Selector":
+                now = pdata.get("now", "?")
+                print(f"  {name:20s} → {now}")
+    except Exception:
+        pass
+
+    # 6. 直连绕过列表
+    info("--- 直连绕过列表 ---")
+    domains = load_bypass_domains()
+    if domains:
+        for d in sorted(domains):
+            print(f"  • {d}")
+    else:
+        print("  (空)")
+
+    # 7. 节点统计
+    info("--- 节点统计 ---")
+    leaves = get_leaf_nodes()
+    protocols = {}
+    for name, pdata in leaves.items():
+        t = pdata.get("type", "?")
+        protocols[t] = protocols.get(t, 0) + 1
+    for t, c in sorted(protocols.items()):
+        print(f"  {t:12s}: {c}")
+    print(f"  {'总计':12s}: {sum(protocols.values())}")
+    print()
+
+    return 0 if all_ok else 1
+
+
+def cmd_check(urls, verbose=False):
+    if not urls:
+        urls = load_monitor_sites()
+
+    print()
+    info("══════════════════════════════════════")
+    info("  代理连通性测试")
+    info("══════════════════════════════════════")
+    print(f"  代理: {CYAN}{PROXY_ADDR}{NC}")
+    print()
+
+    all_ok = True
+    for url in urls:
+        label = get_site_label(url)
+        print(f"  [{label}] {url}")
+
+        code, ms, err_msg = test_url(url)
+        if http_ok(code):
+            ok(f"代理 → HTTP {code} ({ms:.2f}s)")
+        else:
+            err(f"代理 → HTTP {code} ({ms:.2f}s)" +
+                (f" — {err_msg}" if err_msg else ""))
+            all_ok = False
+
+        # 同时检测直连
+        code_direct, ms_direct, _ = test_direct(url)
+        if http_ok(code_direct):
+            ok(f"直连 → HTTP {code_direct} ({ms_direct:.2f}s)")
+            if not http_ok(code):
+                warn("  ↑ 代理失败但直连成功 → 建议加入直连绕过")
+        else:
+            warn(f"直连 → HTTP {code_direct} ({ms_direct:.2f}s)")
+        print()
+
+    return 0 if all_ok else 1
+
+
+def cmd_scan(url):
+    print()
+    info("══════════════════════════════════════")
+    info(f"  节点扫描: {url}")
+    info("══════════════════════════════════════")
+    print()
+
+    leaves = get_leaf_nodes()
+    if not leaves:
+        err("无可用代理节点")
+        return 1
+
+    print(f"  共 {len(leaves)} 个节点，逐一测试中...\n")
+
+    results = []
+    for name, pdata in sorted(leaves.items()):
+        node_type = pdata.get("type", "?")
+        delay = test_node_delay(name, url, TIMEOUT * 1000)
+        if delay >= 0:
+            status = f"{GREEN}✅{NC} {delay}ms"
+            results.append((delay, name, node_type, True))
+        else:
+            status = f"{RED}❌{NC} 超时"
+            results.append((99999, name, node_type, False))
+        print(f"  {name:20s} {node_type:10s} {status}")
+
+    passed = sum(1 for r in results if r[3])
+    print()
+    if passed > 0:
+        ok(f"通过: {passed}/{len(results)} ({passed/len(results)*100:.0f}%)")
+        results.sort()
+        print(f"\n  最佳节点: {results[0][1]} ({results[0][2]}, {results[0][0]}ms)")
+    else:
+        err(f"全部失败: {len(results)}/{len(results)}")
+    print()
+    return 0 if passed > 0 else 1
+
+
+def cmd_fix(url):
+    """自动修复：扫描节点 + 切换最佳 + 检查直连绕过。"""
+    print()
+    info("══════════════════════════════════════")
+    info(f"  自动修复: {url}")
+    info("══════════════════════════════════════")
+    print()
+
+    domain = extract_domain(url)
+
+    # Step 1: 直接测试当前状态
+    code, ms, _ = test_url(url)
+    if http_ok(code):
+        ok(f"站点已可达 (HTTP {code}, {ms:.2f}s)，无需修复")
+        return 0
+
+    warn(f"站点当前不可达 (HTTP {code})")
+    print()
+
+    # Step 2: 扫描叶子节点
+    leaves = get_leaf_nodes()
+    if not leaves:
+        warn("无可用代理节点")
+    else:
+        warn(f"遍历 {len(leaves)} 个节点测试连通性...")
+        working = []
+        for name, pdata in sorted(leaves.items()):
+            delay = test_node_delay(name, url, TIMEOUT * 1000)
+            if delay >= 0:
+                working.append((delay, name, pdata.get("type", "?")))
+        print()
+
+        if working:
+            best = working[0]
+            info(f"找到 {len(working)} 个可用节点")
+            ok(f"最佳: {best[1]} ({best[2]}, {best[0]}ms)")
+            print()
+
+            # 尝试切换选择器
+            info("切换选择器到最佳节点...")
+            switched = False
+            for selector_name in ["proxy-select", "xn-selector",
+                                   "yt-selector", "gh-selector",
+                                   "fallback-selector"]:
+                sel_data = clash_get(f"/proxies/{selector_name}")
+                if not sel_data:
+                    continue
+                outbounds = sel_data.get("all", [])
+                if best[1] in outbounds:
+                    if switch_selector(selector_name, best[1]):
+                        ok(f"已将 {selector_name} 切换到 {best[1]}")
+                        switched = True
+                        time.sleep(3)
+                        code, ms, _ = test_url(url)
+                        if http_ok(code):
+                            ok(f"修复成功: HTTP {code} ({ms:.2f}s)")
+                            return 0
+                        else:
+                            warn(f"切换后仍不可达 (HTTP {code})")
+                    break
+
+            if not switched:
+                warn("未找到匹配的选择器")
+        else:
+            warn(f"所有 {len(leaves)} 个节点均无法访问目标站点")
+
+    # Step 3: 尝试直连（智能绕过检测）
+    print()
+    info("检查直连可行性...")
+    code_direct, ms_direct, _ = test_direct(url)
+    if http_ok(code_direct):
+        ok(f"直连成功! HTTP {code_direct} ({ms_direct:.2f}s)")
+        info(f"→ 站点 {domain} 应绕过代理")
+        add_bypass_domain(domain)
+        info("注入直连规则并重启 sing-box...")
+        if inject_bypass_rules():
+            restart_singbox()
+            time.sleep(5)
+            code, ms, _ = test_url(url)
+            if http_ok(code):
+                ok(f"直连绕过生效: HTTP {code} ({ms:.2f}s)")
+                return 0
+            else:
+                warn("直连绕过已配置，等待下次路由生效")
+                return 0
+        return 0
+    else:
+        warn(f"直连也不可达: HTTP {code_direct}")
+
+    # Step 4: 全部失败 → 触发源更新
+    info("所有节点均不可用，触发代理源更新...")
+    success = trigger_update()
+    if success:
+        time.sleep(10)
+        code, ms, _ = test_url(url)
+        if http_ok(code):
+            ok(f"更新后修复成功: HTTP {code} ({ms:.2f}s)")
+            return 0
+        else:
+            err(f"更新后仍然不可达 (HTTP {code})")
+            return 1
+    else:
+        err("代理源更新失败")
+        return 1
+
+
+def trigger_update():
+    """触发完整的代理源更新 + 配置重生成 + 服务重启。"""
+    info("=== 开始更新代理配置 ===")
+    print()
+
+    gen_script = os.path.join(SCRIPT_DIR, "proxy-gen.sh")
+    if os.path.isfile(gen_script):
+        try:
+            result = subprocess.run(
+                ["bash", gen_script, "--deploy"],
+                capture_output=True, timeout=300,
+            )
+            if result.returncode == 0:
+                ok("代理源更新 + 配置重生成 + 服务重启 完成")
+                # 注入直连规则
+                inject_bypass_rules()
+                return True
+            else:
+                err(f"proxy-gen.sh 失败 (exit {result.returncode})")
+                return False
+        except subprocess.TimeoutExpired:
+            err("代理源更新超时 (5分钟)")
+            return False
+        except Exception as e:
+            err(f"代理源更新异常: {e}")
+            return False
+    else:
+        err(f"proxy-gen.sh 不存在: {gen_script}")
+        return False
+
+
+def cmd_watch(interval=300, daemon=False):
+    if daemon:
+        info(f"启动持续守护进程 (轮询间隔: {interval}s)")
+        info(f"代理: {PROXY_ADDR}")
+        print()
+        while True:
+            _check_and_fix()
+            print(f"  等待 {interval}s...")
+            time.sleep(interval)
+    else:
+        _check_and_fix()
+
+
+def _check_and_fix():
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"\n[{ts}] {'='*50}")
+
+    sites = load_monitor_sites()
+    all_ok = True
+    for url in sites:
+        label = get_site_label(url)
+        code, ms, _ = test_url(url)
+        if http_ok(code):
+            print(f"  ✅ {label:12s} HTTP {code} ({ms:.2f}s)")
+        else:
+            print(f"  ❌ {label:12s} HTTP {code} ({ms:.2f}s) — 触发修复")
+            all_ok = False
+            log(f"{url} 不可达 (HTTP {code}), 触发修复", "WARN")
+            cmd_fix(url)
+
+    if all_ok:
+        print(f"  全部正常")
+
+
+def cmd_api_check():
+    print()
+    info("══════════════════════════════════════")
+    info("  Clash API 诊断")
+    info("══════════════════════════════════════")
+    print()
+
+    try:
+        version = clash_get("/version")
+        if version:
+            ok(f"Clash 版本: {version}")
+    except Exception as e:
+        err(f"无法连接 Clash API: {e}")
+        return 1
+
+    info("--- 选择器状态 ---")
+    proxies = clash_get("/proxies") or {}
+    proxies = proxies.get("proxies", proxies)
+    if not proxies:
+        err("无代理数据")
+        return 1
+
+    for name, pdata in sorted(proxies.items()):
+        if not isinstance(pdata, dict):
+            continue
+        t = pdata.get("type")
+        if t == "Selector":
+            now = pdata.get("now", "?")
+            all_nodes = pdata.get("all", [])
+            print(f"  {name:22s} → {now:20s}  ({len(all_nodes)} 可选)")
+        elif t == "URLTest":
+            now = pdata.get("now", "?")
+            print(f"  {name:22s} → {now:20s}  (urltest)")
+
+    print()
+    info("--- 叶子节点 ---")
+    leaves = get_leaf_nodes()
+    for name, pdata in sorted(leaves.items()):
+        t = pdata.get("type", "?")
+        history = pdata.get("history", [])
+        delay = history[-1]["delay"] if history else "?"
+        print(f"  {name:22s} {t:10s} last_delay={delay}ms")
+    print()
+    return 0
+
+
+# ══════════════════════════════════════════════════════════
+#  定时任务管理
+# ══════════════════════════════════════════════════════════
+
+CRON_SCRIPT = os.path.abspath(__file__)
+
+
+def cmd_install_cron(interval=15):
+    cron_line = f"*/{interval} * * * * {CRON_SCRIPT} watch >/dev/null 2>&1"
+    try:
+        existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=5)
+        current = existing.stdout.strip()
+    except Exception:
+        current = ""
+
+    new_lines = []
+    for line in current.split("\n"):
+        if "proxy-monitor" in line:
+            continue
+        if line.strip():
+            new_lines.append(line)
+    new_lines.append(cron_line)
+    new_cron = "\n".join(new_lines) + "\n"
+
+    try:
+        proc = subprocess.run(["crontab"], input=new_cron, text=True, capture_output=True, timeout=5)
+        if proc.returncode == 0:
+            ok(f"cron 已安装: 每 {interval} 分钟执行监控")
+            print(f"  命令: {cron_line}")
+            return 0
+        else:
+            err(f"cron 安装失败: {proc.stderr}")
+            return 1
+    except Exception as e:
+        err(f"cron 安装异常: {e}")
+        return 1
+
+
+def cmd_remove_cron():
+    try:
+        existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=5)
+        current = existing.stdout.strip()
+    except Exception:
+        ok("无 crontab")
+        return 0
+
+    new_lines = [line for line in current.split("\n") if "proxy-monitor" not in line and line.strip()]
+    new_cron = "\n".join(new_lines) + "\n"
+
+    try:
+        proc = subprocess.run(["crontab"], input=new_cron, text=True, capture_output=True, timeout=5)
+        if proc.returncode == 0:
+            ok("cron 已移除")
+            return 0
+        else:
+            err(f"cron 移除失败: {proc.stderr}")
+            return 1
+    except Exception as e:
+        err(f"cron 移除异常: {e}")
+        return 1
+
+
+# ══════════════════════════════════════════════════════════
+#  Main
+# ══════════════════════════════════════════════════════════
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="proxy-monitor — 代理健康监控 + 节点诊断 + 自动修复 + 智能直连",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+子命令:
+  status                     查看代理健康状态
+  check <url>...             测试站点连通性（同时检测直连）
+  scan <url>                 遍历所有节点测试目标站点
+  fix <url>                  自动修复（扫描+切换+检查直连）
+  bypass list                查看直连绕过列表
+  bypass add <domain>        添加直连域名
+  bypass remove <domain>     移除直连域名
+  bypass detect <url>        检测是否需要直连绕过
+  inject                     注入直连规则到 sing-box 配置
+  api                        诊断 Clash API
+  watch                      监控+自动修复（配合 cron 使用）
+  sites [list|add|remove]    管理监控站点列表
+  install-cron [N]           安装定时监控 (每 N 分钟, 默认15)
+  remove-cron                移除定时监控
+        """,
+    )
+
+    if len(sys.argv) < 2:
+        parser.print_help()
+        return 1
+
+    command = sys.argv[1]
+    cmd_args = sys.argv[2:]
+
+    if command == "status":
+        return cmd_status()
+    elif command == "check":
+        return cmd_check(cmd_args, verbose=False)
+    elif command == "scan":
+        if not cmd_args:
+            err("请指定要测试的 URL")
+            return 1
+        return cmd_scan(cmd_args[0])
+    elif command == "fix":
+        if not cmd_args:
+            err("请指定要修复的 URL")
+            return 1
+        return cmd_fix(cmd_args[0])
+    elif command == "bypass":
+        if not cmd_args:
+            # 列出直连域名
+            domains = load_bypass_domains()
+            print(f"\n  直连绕过域名 ({len(domains)}):\n")
+            for d in sorted(domains):
+                print(f"    • {d}")
+            print()
+            return 0
+        sub_cmd = cmd_args[0]
+        if sub_cmd == "list":
+            domains = load_bypass_domains()
+            print(f"\n  直连绕过域名 ({len(domains)}):\n")
+            for d in sorted(domains):
+                print(f"    • {d}")
+            print()
+            return 0
+        elif sub_cmd == "add":
+            for domain in cmd_args[1:]:
+                add_bypass_domain(domain)
+            return 0
+        elif sub_cmd == "remove":
+            for domain in cmd_args[1:]:
+                remove_bypass_domain(domain)
+            return 0
+        elif sub_cmd == "detect":
+            if len(cmd_args) < 2:
+                err("请指定要检测的 URL")
+                return 1
+            detect_bypass(cmd_args[1])
+            return 0
+        else:
+            err(f"未知 bypass 子命令: {sub_cmd}")
+            return 1
+    elif command == "inject":
+        success = inject_bypass_rules()
+        if success:
+            ok("直连规则已注入，建议重启 sing-box 使其生效")
+            print("  执行: sudo systemctl restart sing-box-chromego")
+        return 0 if success else 1
+    elif command == "api":
+        return cmd_api_check()
+    elif command == "watch":
+        interval = 300
+        daemon = False
+        for i, arg in enumerate(cmd_args):
+            if arg == "--interval" and i + 1 < len(cmd_args):
+                interval = int(cmd_args[i + 1])
+            elif arg == "--daemon":
+                daemon = True
+        return cmd_watch(interval, daemon)
+    elif command == "install-cron":
+        interval = int(cmd_args[0]) if cmd_args else 15
+        return cmd_install_cron(interval)
+    elif command == "remove-cron":
+        return cmd_remove_cron()
+    elif command == "sites":
+        return cmd_manage_sites(cmd_args)
+    elif command in ("-h", "--help"):
+        parser.print_help()
+        return 0
+    else:
+        err(f"未知命令: {command}")
+        parser.print_help()
+        return 1
+
+
+def cmd_manage_sites(args):
+    sites = load_monitor_sites()
+    if not args or args[0] == "list":
+        print(f"\n  监控站点 ({len(sites)}):\n")
+        for i, url in enumerate(sites, 1):
+            label = get_site_label(url)
+            print(f"  {i:2d}. {label:12s} {url}")
+        print()
+        return 0
+
+    if args[0] == "add":
+        for url in args[1:]:
+            if url not in sites:
+                sites.append(url)
+                ok(f"已添加: {url}")
+            else:
+                warn(f"已存在: {url}")
+        save_monitor_sites(sites)
+        return 0
+
+    if args[0] == "remove":
+        to_remove = set(args[1:])
+        new_sites = [s for s in sites
+                     if get_site_label(s) not in to_remove and s not in to_remove]
+        sites = new_sites
+        save_monitor_sites(sites)
+        ok(f"已移除 {len(sites) - len(new_sites)} 个站点")
+        return 0
+
+    err(f"未知子命令: {args[0]}")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

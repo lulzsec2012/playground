@@ -79,3 +79,10 @@ hf:
     - huggingface.co
     - hf.co
     - hf.space
+
+xn:
+  label: "XNXX"
+  test_url: "https://www.xnxx.com/"
+  domains:
+    - xnxx.com
+    - xnxx.tv
