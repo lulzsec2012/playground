@@ -33,9 +33,10 @@ export HOST_IP
 # Dockerfiles: https://github.com/lulzsec2012/docker.git
 declare -A INSTANCES=(
     [default]="2222:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
-    [test-v1]="2223:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
-    [test-v2]="2224:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
+    [test]="2223:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
+    [cpu]="2224:lulzsec2012/work-dev:ubuntu22.04"
     [dev]="2225:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
+    [lite]="2221:ubuntu-lite:24.04"
 )
 
 INSTANCES_DIR="$HOME/.docker/instances"
@@ -71,6 +72,10 @@ work-server() {
         echo "Available: ${!INSTANCES[*]}"
         return 1
     fi
+
+    # Lite mode: only 'lite' instance skips GPU/privileged flags and uses /home/$USER config
+    local is_lite=false
+    [[ "$instance" == "lite" ]] && is_lite=true
 
     local name="${USER}-work-server-${instance}"
     local config_dir
@@ -120,25 +125,35 @@ work-server() {
         volumes+=(--volume="$CLASH_CONFIG:/clash_config:cached")
     fi
 
-    declare -a shared_dirs=(
-        "/share_data" "/software_data" "/data"
-        "/zjshare_data" "/softhome" "/share" "/data_gpu"
-    )
-    for dir in "${shared_dirs[@]}"; do
-        if [[ -d "$dir" ]]; then
-            volumes+=(--volume="$dir:$dir")
-        fi
-    done
-
-    declare -a gpu_opts=()
-    if docker info 2>/dev/null | grep -qi "Runtimes.*nvidia"; then
-        gpu_opts=(--gpus all)
+    # CUDA 实例挂载共享目录
+    if ! $is_lite; then
+        declare -a shared_dirs=(
+            "/share_data" "/software_data" "/data"
+            "/zjshare_data" "/softhome" "/share" "/data_gpu"
+        )
+        for dir in "${shared_dirs[@]}"; do
+            if [[ -d "$dir" ]]; then
+                volumes+=(--volume="$dir:$dir")
+            fi
+        done
     fi
 
-    docker run -t --privileged "${gpu_opts[@]}" \
-        --ipc=host \
-        --ulimit memlock=-1:-1 \
-        --log-driver=none \
+    declare -a docker_opts=(
+        --log-driver=none
+    )
+    if $is_lite; then
+        # Lite: no GPU, no privileged mode
+        docker_opts+=(--security-opt seccomp=unconfined)
+    else
+        # CUDA: GPU access and performance tuning
+        declare -a gpu_opts=()
+        if docker info 2>/dev/null | grep -qi "Runtimes.*nvidia"; then
+            gpu_opts=(--gpus all)
+        fi
+        docker_opts+=(--privileged "${gpu_opts[@]}" --ipc=host --ulimit memlock=-1:-1)
+    fi
+
+    docker run -t "${docker_opts[@]}" \
         --hostname="D$(hostname)" \
         --name "$name" \
         "${volumes[@]}" \
@@ -151,23 +166,54 @@ work-server() {
 
     echo "🔧 Setting up home directory and user..."
     sleep 2
-    docker cp "$config_dir/." "$name:$HOME/"
-    docker exec "$name" chmod 700 $HOME/.ssh
-    docker exec "$name" chmod 600 $HOME/.ssh/authorized_keys
-    docker exec "$name" chown -R "$(id -u):$(id -g)" $HOME/
 
-    docker exec "$name" bash -c "
-        getent group $(id -g) >/dev/null 2>&1 || groupadd -g $(id -g) $USER
-        id -u $(id -u) >/dev/null 2>&1 || useradd -m -u $(id -u) -g $(id -g) -G sudo -s /bin/bash $USER
-        passwd -d $USER >/dev/null 2>&1
-        echo '$USER ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$USER
-        SOCKET_GID=\$(stat -c '%g' /var/run/docker.sock 2>/dev/null)
-        if [ -n \"\$SOCKET_GID\" ] && [ \"\$SOCKET_GID\" != \"0\" ]; then
-            getent group \$SOCKET_GID >/dev/null 2>&1 || groupadd -g \$SOCKET_GID docker
-            usermod -aG \$SOCKET_GID $USER
-        fi
-    " 2>&1
+    if $is_lite; then
+        # Lite: create user first, then copy config to user's home
+        docker exec "$name" bash -c "
+            getent group $(id -g) >/dev/null 2>&1 || groupadd -g $(id -g) $USER
+            id -u $(id -u) >/dev/null 2>&1 || useradd -m -u $(id -u) -g $(id -g) -G sudo -s /bin/bash $USER
+            passwd -d $USER >/dev/null 2>&1
+            echo '$USER ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$USER
+        " 2>&1
+        docker exec "$name" mkdir -p "/home/$USER"
+        docker cp "$config_dir/." "$name:/home/$USER/"
+        docker exec "$name" chmod 700 "/home/$USER/.ssh"
+        docker exec "$name" chmod 600 "/home/$USER/.ssh/authorized_keys"
+        docker exec "$name" chown -R "$(id -u):$(id -g)" "/home/$USER"
+        docker exec "$name" bash -c "
+            SOCKET_GID=\$(stat -c '%g' /var/run/docker.sock 2>/dev/null)
+            if [ -n \"\$SOCKET_GID\" ] && [ \"\$SOCKET_GID\" != \"0\" ]; then
+                getent group \$SOCKET_GID >/dev/null 2>&1 || groupadd -g \$SOCKET_GID docker
+                usermod -aG \$SOCKET_GID $USER
+            fi
+        " 2>&1
+    else
+        # Full: copy config to \$HOME (image has user set up), then create user
+        docker cp "$config_dir/." "$name:$HOME/"
+        docker exec "$name" chmod 700 $HOME/.ssh
+        docker exec "$name" chmod 600 $HOME/.ssh/authorized_keys
+        docker exec "$name" chown -R "$(id -u):$(id -g)" $HOME/
+        docker exec "$name" bash -c "
+            getent group $(id -g) >/dev/null 2>&1 || groupadd -g $(id -g) $USER
+            id -u $(id -u) >/dev/null 2>&1 || useradd -m -u $(id -u) -g $(id -g) -G sudo -s /bin/bash $USER
+            passwd -d $USER >/dev/null 2>&1
+            echo '$USER ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$USER
+            SOCKET_GID=\$(stat -c '%g' /var/run/docker.sock 2>/dev/null)
+            if [ -n \"\$SOCKET_GID\" ] && [ \"\$SOCKET_GID\" != \"0\" ]; then
+                getent group \$SOCKET_GID >/dev/null 2>&1 || groupadd -g \$SOCKET_GID docker
+                usermod -aG \$SOCKET_GID $USER
+            fi
+        " 2>&1
+    fi
+
     docker exec "$name" service ssh restart >/dev/null 2>&1
+
+    # Lite: 安装 docker CLI 方便容器内操作
+    if $is_lite; then
+        docker exec "$name" bash -c "
+            apt-get update -qq && apt-get install -y -qq --no-install-recommends docker.io >/dev/null 2>&1
+        " 2>&1 || true
+    fi
 
     # Set tailscale hostname to dashed IP for easy identification in tailnet
     local ts_hostname="${HOST_IP//./-}"
