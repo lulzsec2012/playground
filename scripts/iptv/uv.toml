@@ -1,0 +1,9 @@
+# uv.toml — iptv-api UV 配置
+# 由 deploy.sh 自动管理，手动修改会被 --clean 清理后重新生成
+
+# link-mode: 跨文件系统时 uv 默认 hardlink 会失败降级
+# 设为 copy 避免 warning，且行为更可预测
+link-mode = "copy"
+
+# 锁定 Python 版本，避免不同机器 venv 重建时版本漂移
+python-preference = "only-system"

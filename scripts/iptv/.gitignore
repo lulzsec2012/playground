@@ -1,0 +1,9 @@
+# uv 虚拟环境
+.venv/
+
+# 克隆的 iptv-api 源码
+src/
+
+# 运行时配置和输出
+config/
+output/
