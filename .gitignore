@@ -17,6 +17,9 @@ luluman_docker/
 # OpenCode working directory
 .omo/
 
+# OpenCode runtime state (auto-generated, contains machine-specific absolute paths)
+.opencode/state/
+
 # Data directory (sensitive configs, generated content)
 data/
 
