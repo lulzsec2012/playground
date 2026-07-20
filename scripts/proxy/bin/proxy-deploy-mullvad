@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# proxy-deploy-mullvad — (已弃用) 请使用 proxy-deploy
+#
+# proxy-deploy 已合并所有功能：
+#   免费节点 + Mullvad + Dashboard 管理面板
+#
+# 用法替代:
+#   proxy-deploy-mullvad → proxy-deploy
+#   proxy-deploy-mullvad --dry-run → proxy-deploy --dry-run
+
+echo ""
+echo "╔══════════════════════════════════════════════╗"
+echo "║  ⚠️  已弃用                                  ║"
+echo "║                                             ║"
+echo "║  proxy-deploy-mullvad 已合并到 proxy-deploy  ║"
+echo "║                                             ║"
+echo "║  请使用: proxy-deploy                        ║"
+echo "║                                             ║"
+echo "║  proxy-deploy 包含:                          ║"
+echo "║    ✅ 免费节点                              ║"
+echo "║    ✅ Mullvad (自动检测)                     ║"
+echo "║    ✅ Web 管理面板                          ║"
+echo "║    ✅ 运行状态查看                          ║"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+
+# 把参数原样传给 proxy-deploy
+exec "$(cd "$(dirname "$0")" && pwd)/proxy-deploy" "$@"

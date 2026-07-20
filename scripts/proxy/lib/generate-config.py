@@ -43,6 +43,16 @@ OUTPUT_PATH = os.path.join(CONFIGS_DIR, "config.json")
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 RANKING_FILE = os.path.join(DATA_DIR, "node-ranking.json")
 
+# 路径可覆盖（不需要 sudo 权限）
+_SINGBOX_RULESET_DIR = os.environ.get(
+    "SINGBOX_RULESET_DIR",
+    os.path.join(DATA_DIR, "rule-set"),
+)
+_SINGBOX_CACHE_FILE = os.environ.get(
+    "SINGBOX_CACHE_FILE",
+    os.path.join(DATA_DIR, "cache.db"),
+)
+
 FALLBACK_KEY = "fallback"
 SITE_GROUPS_FILE = os.path.join(
     os.path.dirname(__file__), "..", "config", "priority-sites.yaml"
@@ -910,23 +920,24 @@ def generate(
                     "type": "local",
                     "tag": "geoip-cn",
                     "format": "source",
-                    "path": "/var/lib/sing-box/rule-set/geoip-cn.srs",
+                    "path": f"{_SINGBOX_RULESET_DIR}/geoip-cn.srs",
                 },
                 {
                     "type": "local",
                     "tag": "geosite-cn",
                     "format": "source",
-                    "path": "/var/lib/sing-box/rule-set/geosite-cn.srs",
+                    "path": f"{_SINGBOX_RULESET_DIR}/geosite-cn.srs",
                 },
             ],
         },
         "experimental": {
             "cache_file": {
                 "enabled": True,
-                "path": "/var/lib/sing-box/cache.db",
+                "path": _SINGBOX_CACHE_FILE,
             },
             "clash_api": {
                 "external_controller": f"{listen}:{dashboard_port}",
+                "external_ui": "ui",
                 "default_mode": "rule",
             },
         },

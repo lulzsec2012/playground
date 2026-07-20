@@ -1,0 +1,86 @@
+# Mullvad 区域配置
+# ===================
+# 在此列出你想使用的 Mullvad 服务器区域。
+# key 为区域短码，用于生成 sing-box outbound tag。
+# 实际 WireGuard 配置文件名必须与 key 匹配: data/mullvad/<key>.conf
+#
+# 启用方式:
+#   1. 在下方添加你想用的区域
+#   2. 下载对应的 WireGuard 配置到 data/mullvad/<key>.conf
+#   3. 运行 proxy-deploy-mullvad 自动部署
+#
+# 优先级: default: true 的区域会作为默认路由选项
+
+regions:
+  us-lax:
+    label: "🇺🇸 美国 洛杉矶"
+    country: us
+    city: los-angeles
+    default: true          # 作为 Mullvad 默认出口
+
+  us-nyc:
+    label: "🇺🇸 美国 纽约"
+    country: us
+    city: new-york
+    default: false
+
+  sg:
+    label: "🇸🇬 新加坡"
+    country: sg
+    city: singapore
+    default: false
+
+  jp:
+    label: "🇯🇵 日本 东京"
+    country: jp
+    city: tokyo
+    default: false
+
+  de:
+    label: "🇩🇪 德国 法兰克福"
+    country: de
+    city: frankfurt
+    default: false
+
+  nl:
+    label: "🇳🇱 荷兰 阿姆斯特丹"
+    country: nl
+    city: amsterdam
+    default: false
+
+  uk:
+    label: "🇬🇧 英国 伦敦"
+    country: gb
+    city: london
+    default: false
+
+  ch:
+    label: "🇨🇭 瑞士"
+    country: ch
+    city: zurich
+    default: false
+
+# ── 路由分配 ──────────────────────────────────────
+# 哪些流量优先走 Mullvad (而不是免费节点)
+#
+# 可选值:
+#   mullvad-only     — 始终走 Mullvad (不提供免费节点选项)
+#   prefer-mullvad   — 默认走 Mullvad，可在 Dashboard 切换
+#   optional         — 添加到选择器，默认走免费节点
+#   disabled         — 不走 Mullvad
+
+routing:
+  # AI 站点: Mullvad 更可靠 (ChatGPT/Claude 常封免费节点 IP)
+  ai: mullvad-only
+  # Google: 可选，免费节点也可用
+  google: optional
+  # GitHub: 免费节点优先，不稳时切 Mullvad
+  github: optional
+  # YouTube: 免费节点足够
+  youtube: optional
+  # Telegram: 免费节点足够
+  telegram: optional
+  # Docker Hub: 免费节点优先
+  docker: optional
+  # Hugging Face: 免费节点优先
+  huggingface: optional
