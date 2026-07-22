@@ -120,14 +120,86 @@ cp -r opencode-obsidian <vault>/.obsidian/plugins/
 
 ---
 
+---
+
+## 方案 D: Self-hosted LiveSync (多设备同步)
+
+使用 CouchDB 实现 Obsidian 多设备（电脑 + 手机）无缝同步。
+
+### 架构
+
+```
+┌─ macOS ─┐     ┌─ Windows ─┐     ┌─ iOS/Android ─┐
+│ Obsidian │     │ Obsidian  │     │ Obsidian      │
+│ LiveSync │     │ LiveSync  │     │ LiveSync      │
+└────┬─────┘     └─────┬─────┘     └──────┬────────┘
+     └────────┬────────┘──────────────────┘
+              │ HTTP / HTTPS
+              ▼
+   ┌─────────────────────┐
+   │  CouchDB (Docker)   │
+   │  服务器: 62.234.69.194 │
+   │  端口: 5984          │
+   │  数据: /opt/couchdb/ │
+   └─────────────────────┘
+```
+
+### 部署
+
+```bash
+# 一键部署到腾讯云服务器
+bash scripts/obsidian/parts/deploy-couchdb.sh --host 62.234.69.194
+
+# 部署后输出连接信息:
+#   URI:      http://62.234.69.194:5984/
+#   Username: admin
+#   Password: <自动生成>
+
+# 查看部署状态
+bash scripts/obsidian/parts/deploy-couchdb.sh --status
+
+# 卸载
+bash scripts/obsidian/parts/deploy-couchdb.sh --remove
+```
+
+### 客户端配置
+
+1. **安装插件**: Obsidian 社区插件 → 搜索 "Self-hosted LiveSync"
+2. **配置连接**:
+
+| 字段 | 值 |
+|------|-----|
+| URI | `http://62.234.69.194:5984/` |
+| Username | `admin` |
+| Password | 部署时生成的密码 |
+| Database name | `my-vault`（自定义） |
+
+3. **首次同步**: 保存后插件自动创建数据库并开始同步
+
+### 注意事项
+
+| 场景 | 说明 |
+|:----|:------|
+| **桌面版** | HTTP 直连可用 |
+| **移动端** | iOS/Android 强制 HTTPS，需后续配置反向代理 |
+| **安全** | 当前端口直接暴露公网，建议配合反向代理 + HTTPS |
+
+### 后续步骤
+
+1. **反向代理**: 配置 Caddy/Nginx 提供 HTTPS（移动端需要）
+2. **Tailscale**: 如果服务器接入 Tailscale，可通过 Tailscale IP 连接（更安全）
+
+---
+
 ## 组合推荐
 
 ```
 macOS 本机:
   Obsidian GUI
-    ├── Local REST API 插件 ←→ with-context-plugin (方案A: AI 读写 vault)
-    ├── Dataview 插件       ←→ opencode-obsidian-sync (方案B: 会话知识库)
-    └── opencode-obsidian    (方案C: 侧边栏对话)
+    ├── Self-hosted LiveSync  ←→  CouchDB (方案D: 多设备同步)
+    ├── Local REST API 插件   ←→  with-context-plugin (方案A: AI 读写 vault)
+    ├── Dataview 插件         ←→  opencode-obsidian-sync (方案B: 会话知识库)
+    └── opencode-obsidian      (方案C: 侧边栏对话)
 
 Linux 容器 (10.10.18.211:2222):
   无 GUI → obsidian-export CLI
