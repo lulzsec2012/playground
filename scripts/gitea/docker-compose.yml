@@ -30,7 +30,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     ports:
-      - "3000:3000"   # Web UI
+      - "3020:3000"   # Web UI
       - "222:22"      # SSH（映射到宿主机 222 端口，避免与宿主机 SSH 的 22 端口冲突）
 
 volumes:

@@ -15,13 +15,22 @@ There is NOT a `projects/`, `tools/`, or `apps/` directory — it's always `scri
 
 ```
 scripts/
+├── data/            # Sensitive configs (gitignored)
 ├── docker/          # Docker work-server & container lifecycle
 ├── emacs/           # Emacs macOS install script
 ├── fileserver/      # File server (client + server + deploy)
+├── gitea/           # Gitea code hosting
+├── hermes/          # Hermes toolkit
+├── iptv/            # IPTV tools
+├── langfuse/        # LLM token consumption analytics
 ├── mixapi/          # MIXAPI management
-├── opencode/        # OpenCode install script
+├── nginx/           # Nginx config
+├── obsidian/        # Obsidian notes & LiveSync
+├── opencode/        # OpenCode config & LLM Router
 ├── pesudo/          # Sudo replacement with audit
-└── proxy/           # Proxy tools (fetch.sh, free.sh, cron)
+├── proxy/           # Proxy tools (deploy, fetch, health)
+├── tailscale/       # Tailscale node deployment
+└── tools/           # Utility scripts
 ```
 
 New additions go into `scripts/<name>/` with its own README, scripts, and optionally a `register.sh`.
@@ -80,3 +89,20 @@ This replaces the old `set_alias.sh` / `install-path.sh` convention.
 - Host/container UID: 6032, GID: 5005 (GroupIP)
 - New containers need user created: `useradd -u 6032 -g 5005 -G sudo lulizhi`
 - New users have locked accounts (`!` in shadow) — must `passwd -d lulizhi` after creation
+
+## Development Rules
+
+### 1. 新增脚本必须更新 README
+
+`scripts/` 下每新增一个子目录或脚本，必须在 `README.md` 中同步更新：
+- 目录结构树中新增条目
+- 端口占用表中登记使用的端口
+- 常用命令速查中增加用法示例
+
+### 2. 端口占用必须先查 README
+
+新增任何服务前，先去 `README.md` 的**端口占用**章节确认目标端口是否已被使用。
+规则：
+- Host 端口冲突 → 修改映射端口或停用旧服务
+- 容器内端口冲突 → 改用 `30xx`（工具类）或 `80xx`（开发类）段中空闲端口
+- 新的端口必须登记到 README 的端口表中
