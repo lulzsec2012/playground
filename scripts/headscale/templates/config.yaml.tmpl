@@ -1,0 +1,79 @@
+# headscale config — 由 install-headscale.sh 渲染
+# 占位符: __SERVER_URL__ __LISTEN_ADDR__ __DATA_DIR__ __DERP_IPV4__ __SOCKET_PATH__
+
+# 客户端连接的 URL（必须 HTTPS，DERP 依赖 TLS）
+server_url: __SERVER_URL__
+
+# 控制面监听地址
+listen_addr: __LISTEN_ADDR__
+
+metrics_listen_addr: 127.0.0.1:9090
+
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+
+noise:
+  private_key_path: __DATA_DIR__/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+
+derp:
+  server:
+    # 启用内置 DERP 中继
+    enabled: true
+    region_id: 999
+    region_code: "cn"
+    region_name: "Headscale China DERP"
+    verify_clients: true
+    # STUN（NAT 打洞辅助）— 原 3478 被旧 derper 占用，现已释放恢复标准端口
+    stun_listen_addr: "0.0.0.0:3478"
+    private_key_path: __DATA_DIR__/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+    # 公网 IP 写入 DERP map，客户端优先尝试直连
+    ipv4: __DERP_IPV4__
+  # 不依赖外部 DERP
+  urls: []
+  paths: []
+  auto_update_enabled: false
+  update_frequency: 3h
+
+disable_check_updates: true
+
+node:
+  # 节点永不过期
+  expiry: 0
+  ephemeral:
+    inactivity_timeout: 30m
+
+database:
+  type: sqlite
+  debug: false
+  sqlite:
+    path: __DATA_DIR__/db.sqlite
+    write_ahead_log: true
+
+log:
+  level: info
+  format: text
+
+dns:
+  magic_dns: true
+  base_domain: hs.internal
+  # 不强制覆盖客户端本地 DNS
+  override_local_dns: false
+  nameservers:
+    global:
+      - 223.5.5.5
+      - 119.29.29.29
+
+policy:
+  mode: database
+
+unix_socket: __SOCKET_PATH__
+unix_socket_permission: "0770"
+
+# 自签 TLS 证书（install 脚本生成）
+tls_cert_path: __DATA_DIR__/certs/server.crt
+tls_key_path: __DATA_DIR__/certs/server.key
