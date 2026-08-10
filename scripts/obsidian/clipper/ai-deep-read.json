@@ -1,0 +1,10 @@
+{
+  "name": "文章精读入库 (DeepSeek)",
+  "author": "playground",
+  "version": "1.0.0",
+  "description": "长文精读：DeepSeek 提取结构化要点 + 全文存档，适合深度阅读材料",
+  "type": "web-clipper",
+  "format": "md",
+  "content": "---\ntitle: \"{{title}}\"\nsource: \"{{url}}\"\nauthor: \"{{author}}\"\ntags: [\"inbox\", \"read-later\"]\ncreated: \"{{date:YYYY-MM-DD}}\"\n---\n\n# {{title}}\n\n> 来源: [{{title}}]({{url}})\n\n## 摘要\n\n{{#interpreter}}\n请用中文输出以下结构化摘要：\n\n### 一句话总结\n（不超过 50 字）\n\n### 核心论点\n- 列出 3-5 个主要论点，每个附一句解释\n\n### 关键证据\n- 数据、案例、引用（如有）\n\n### 局限性 / 值得商榷处\n- 作者的论证弱点或未覆盖的角度\n\n### 相关概念\n- 列出文中出现的专有名词，用 [[]] 包裹方便链接\n{{/interpreter}}\n\n## 原文全文\n\n{{content}}\n",
+  "filters": []
+}

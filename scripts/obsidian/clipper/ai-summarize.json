@@ -1,0 +1,10 @@
+{
+  "name": "AI 总结入库 (DeepSeek)",
+  "author": "playground",
+  "version": "1.0.0",
+  "description": "抓取网页 → DeepSeek 自动总结 → 存入 vault 0. Inbox/",
+  "type": "web-clipper",
+  "format": "md",
+  "content": "---\ntitle: \"{{title}}\"\nsource: \"{{url}}\"\nauthor: \"{{author}}\"\ntags: [\"inbox\", \"clipped\"]\ncreated: \"{{date:YYYY-MM-DD}}\"\n---\n\n# {{title}}\n\n> 来源: [{{title}}]({{url}})\n\n## AI 总结\n\n{{#interpreter}}\n请用中文总结这篇文章，输出以下结构：\n\n## 核心观点\n- 用 3-5 个要点概括文章核心内容\n\n## 关键细节\n- 列出重要的数据、事实、引用\n\n## 我的笔记\n- 留空，供后续补充\n{{/interpreter}}\n\n## 原文\n\n{{content}}\n",
+  "filters": []
+}

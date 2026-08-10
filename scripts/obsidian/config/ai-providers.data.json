@@ -1,0 +1,33 @@
+{
+  "providers": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "type": "openai",
+      "baseUrl": "https://api.deepseek.com/v1",
+      "apiKey": "{{DEEPSEEK_API_KEY}}",
+      "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+      "defaultModel": "deepseek-v4-flash",
+      "default": true
+    },
+    {
+      "id": "mixapi",
+      "name": "MixAPI",
+      "type": "openai",
+      "baseUrl": "http://<gateway-ip>:3000",
+      "apiKey": "{{MIXAPI_API_KEY}}",
+      "models": [],
+      "defaultModel": ""
+    },
+    {
+      "id": "local-vllm",
+      "name": "Local vLLM",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:8001/v1",
+      "apiKey": "sk-local",
+      "models": ["gemma4-26b-fp8", "qwen3.6-27b", "qwen3-coder-next-fp8"],
+      "defaultModel": "qwen3.6-27b",
+      "default": false
+    }
+  ]
+}
