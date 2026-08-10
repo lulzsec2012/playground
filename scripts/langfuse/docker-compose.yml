@@ -4,9 +4,9 @@ services:
     container_name: langfuse-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: langfuse
-      POSTGRES_PASSWORD: langfuse-pg-pass
-      POSTGRES_DB: langfuse
+      POSTGRES_USER: ${POSTGRES_USER:-langfuse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 环境变量未设置}
+      POSTGRES_DB: ${POSTGRES_DB:-langfuse}
     volumes:
       - langfuse-pg-data:/var/lib/postgresql/data
     healthcheck:
@@ -25,11 +25,11 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://langfuse:langfuse-pg-pass@postgres:5432/langfuse
+      DATABASE_URL: postgresql://${POSTGRES_USER:-langfuse}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-langfuse}
       NODE_ENV: production
-      SALT: langfuse-salt
-      ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
-      NEXTAUTH_SECRET: langfuse-nextauth-secret
+      SALT: ${LANGFUSE_SALT:?LANGFUSE_SALT 环境变量未设置}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?LANGFUSE_ENCRYPTION_KEY 环境变量未设置}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?LANGFUSE_NEXTAUTH_SECRET 环境变量未设置}
       NEXTAUTH_URL: http://127.0.0.1:3000
       TELEMETRY_ENABLED: false
       LANGFUSE_ENABLE_SIGNUP: true

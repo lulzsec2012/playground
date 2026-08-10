@@ -23,6 +23,8 @@ luluman_docker/
 
 # Data directory (sensitive configs, generated content)
 data/
+!scripts/data/
+!scripts/data/*.example
 
 # Gitea — 仓库代码、数据库、配置等数据，不应提交到 Git
 scripts/gitea/data/

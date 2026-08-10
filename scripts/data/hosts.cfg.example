@@ -1,0 +1,14 @@
+# 基础设施地址配置模板
+# 复制为 scripts/data/hosts.cfg（gitignored）并填入实际地址:
+#   cp scripts/data/hosts.cfg.example scripts/data/hosts.cfg
+# 脚本通过环境变量或 source hosts.cfg 读取，代码库本身不包含任何 IP/凭据。
+
+TENCENT_IP=<tencent-cloud-ip>        # 腾讯云 (headscale 控制面 / CouchDB / llmwiki)
+ALIYUN_IP=<aliyun-ip>                # 阿里云 (new-api 网关)
+COMPANY_IP=<company-headscale-ip>    # 公司服务器 (headscale 内网, vLLM)
+DEV_HOST_IP=<dev-host-ip>            # 开发主机 (容器宿主机)
+DEV_HOST2_IP=<dev-host2-ip>          # 开发主机 2
+TAILSCALE_HOST_IP=<tailscale-host>   # tailscale 主机
+DEV_CONTAINER_IP=<dev-container-ip>  # dev 容器
+NAS_IP=<nas-ip>                      # 本地 NAS
+SSH_USER=<ssh-username>

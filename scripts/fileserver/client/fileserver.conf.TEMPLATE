@@ -12,7 +12,7 @@ FS_PASS="your-password"    # Filebrowser 管理员密码
 
 # === SSH 模式（公网）===
 # 无 Tailscale 时通过 SSH 操作文件服务器
-FS_SSH_HOST="39.102.52.1"  # 服务器公网 IP 或域名
+FS_SSH_HOST="<server-ip>"  # 实际值写入 scripts/data/hosts.cfg 的 ALIYUN_IP  # 服务器公网 IP 或域名
 FS_SSH_PORT="22"           # SSH 端口
 FS_SSH_USER="lzlu"         # SSH 登录用户名（使用 SSH key 认证）
 

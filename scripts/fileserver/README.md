@@ -87,7 +87,7 @@ scripts/fileserver/
 ## 前置条件
 
 - **阿里云 ECS**：一台有公网 IP 的 Linux 服务器（Ubuntu 22.04+）
-- **SSH 密钥**：本地能通过 SSH key 登录 ECS（`ssh lzlu@<host>`）
+- **SSH 密钥**：本地能通过 SSH key 登录 ECS（`ssh <user>@<host>`）
 - **Tailscale**（可选）：ECS 和开发机上都安装了 Tailscale，用于内网高速传输
 - **本地环境**：macOS / Linux，有 `bash`、`curl`、`rsync`
 
@@ -98,7 +98,7 @@ scripts/fileserver/
 ### 第一步：在 ECS 上安装 Nginx
 
 ```bash
-ssh lzlu@<ecs-ip>
+ssh <user>@<ecs-ip>
 cd /path/to/playground/scripts/nginx/
 bash install-nginx.sh
 ```
@@ -387,7 +387,7 @@ FS_HOST=fileserver FS_SSH_USER=lzlu bash fs-temp-user 30m
 ### SSH 连接失败
 
 ```bash
-ssh -v lzlu@<host> -p <port>
+ssh -v <user>@<host> -p <port>
 ```
 
 检查：
@@ -421,7 +421,7 @@ fs-share --delete s1234567890
 也可以通过 SSH 直接操作：
 
 ```bash
-ssh lzlu@<host> sudo /usr/local/bin/fs-share-helper delete <share-id>
+ssh <user>@<host> sudo /usr/local/bin/fs-share-helper delete <share-id>
 ```
 
 ---

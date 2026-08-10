@@ -1,0 +1,5 @@
+# Ignore ALL private data files (keys, VPN configs, API keys, etc.)
+# Only track templates so the directory structure exists in git
+*
+!.gitignore
+!*.example

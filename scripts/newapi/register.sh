@@ -6,6 +6,16 @@
 #   bash register.sh --print      # 打印注册代码
 
 set -euo pipefail
+# 基础设施地址（gitignored: scripts/data/hosts.cfg）
+HOSTS_CFG="${HOSTS_CFG:-}"
+if [[ -z "$HOSTS_CFG" ]]; then
+    for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
+        [[ -f "$_d/hosts.cfg" ]] && { HOSTS_CFG="$_d/hosts.cfg"; break; }
+    done
+fi
+[[ -f "$HOSTS_CFG" ]] && source "$HOSTS_CFG"
+ALIYUN_IP="${ALIYUN_IP:-}"; SSH_USER="${SSH_USER:-}"
+
 
 NAME="newapi"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,8 +37,8 @@ detect_rc() {
 # ── 生成注册代码 ──────────────────────────────────────────────────────────
 gen_code() {
 	cat <<CODE
-# ${NAME} — new-api LLM 网关 (阿里云 39.102.52.1:3000, 替代 MixAPI)
-NEWAPI_ECS="lzlu@39.102.52.1"
+# ${NAME} — new-api LLM 网关 (阿里云, IP 见 scripts/data/hosts.cfg)
+NEWAPI_ECS="${SSH_USER}@${ALIYUN_IP}"
 alias newapi-ctrl='docker exec -it new-api /app/new-api'
 alias newapi-status='ssh \${NEWAPI_ECS} "docker ps --filter name=new-api --format \"{{.Names}} {{.Status}}\""'
 alias newapi-logs='ssh \${NEWAPI_ECS} "docker logs --tail 50 new-api"'

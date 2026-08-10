@@ -5,8 +5,8 @@
 # 替代 MixAPI（同为 one-api 系，但 new-api 持续维护且已修复 tool_calls 透传）
 #
 # 架构:
-#   new-api (阿里云 39.102.52.1:3000)
-#     ├── 渠道1: vLLM qwen3.6-27b  (headscale 内网 100.64.0.1:8002)
+#   new-api (阿里云, 端口 3000, IP 见 scripts/data/hosts.cfg)
+#     ├── 渠道1: vLLM qwen3.6-27b  (headscale 内网, IP 见 hosts.cfg)
 #     ├── 渠道2: DeepSeek API     (api.deepseek.com)
 #     └── 消费端: Obsidian 插件 / llmwiki (端口 3000 不变，客户端零改动)
 #
@@ -149,7 +149,7 @@ ${CYAN}============================================================${NC}
   ┌─────────┬───────────────┬──────────────────────────────┬──────────────┐
   │ 名称    │ 类型          │ 代理地址                      │ 模型          │
   ├─────────┼───────────────┼──────────────────────────────┼──────────────┤
-  │ vLLM    │ OpenAI        │ http://100.64.0.1:8002       │ qwen3.6-27b  │
+  │ vLLM    │ OpenAI        │ http://<company-ip>:8002       │ qwen3.6-27b  │
   │ DeepSeek│ DeepSeek      │ https://api.deepseek.com      │ deepseek-v4-*│
   └─────────┴───────────────┴──────────────────────────────┴──────────────┘
 
