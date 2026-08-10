@@ -75,6 +75,8 @@ scripts/
 │   └── client/                # 客户端（CLI 工具）
 ├── homeassistant/             # 智能家居中枢 (Home Assistant)
 │
+├── vllm/                      # vLLM 模型部署（deploy/bench/ops）
+│
 ├── tools/                     # 辅助工具
 ├── emacs/                     # Emacs 安装
 ├── hermes/                    # Hermes 工具箱
