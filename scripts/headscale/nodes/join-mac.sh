@@ -10,8 +10,20 @@
 #   HEADSCALE_AUTHKEY=hskey-xxx bash scripts/headscale/join-mac.sh
 # ============================================================
 set -euo pipefail
+# 基础设施地址（gitignored: scripts/data/hosts.cfg, 模板 hosts.cfg.example）
+HOSTS_CFG="${HOSTS_CFG:-}"
+if [[ -z "$HOSTS_CFG" ]]; then
+    for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
+        [[ -f "$_d/hosts.cfg" ]] && { HOSTS_CFG="$_d/hosts.cfg"; break; }
+    done
+fi
+[[ -f "$HOSTS_CFG" ]] && source "$HOSTS_CFG"
+TENCENT_IP="${TENCENT_IP:-}"; ALIYUN_IP="${ALIYUN_IP:-}"; COMPANY_IP="${COMPANY_IP:-}"
+DEV_HOST_IP="${DEV_HOST_IP:-}"; DEV_HOST2_IP="${DEV_HOST2_IP:-}"; TAILSCALE_HOST_IP="${TAILSCALE_HOST_IP:-}"
+DEV_CONTAINER_IP="${DEV_CONTAINER_IP:-}"; NAS_IP="${NAS_IP:-}"; SSH_USER="${SSH_USER:-}"
 
-SERVER="${HEADSCALE_SERVER:-https://62.234.69.194:8443}"
+
+SERVER="${HEADSCALE_SERVER:-https://${TENCENT_IP}:8443}"
 AUTHKEY="${HEADSCALE_AUTHKEY:-}"
 HOSTNAME="mac-mini"
 CA_CERT="/tmp/headscale-ca.crt"
@@ -35,8 +47,8 @@ err() {
 # ── 0. 确保 CA 文件存在 ──────────────────────────────────────────────
 if [ ! -f "$CA_CERT" ]; then
 	warn "CA 文件缺失，尝试从腾讯云拉取..."
-	scp ubuntu@62.234.69.194:/tmp/headscale-ca.crt "$CA_CERT" 2>/dev/null ||
-		ssh ubuntu@62.234.69.194 'sudo cat /var/lib/headscale/certs/ca.crt' >"$CA_CERT"
+	scp ${SSH_USER}@${TENCENT_IP}:/tmp/headscale-ca.crt "$CA_CERT" 2>/dev/null ||
+		ssh ${SSH_USER}@${TENCENT_IP} 'sudo cat /var/lib/headscale/certs/ca.crt' >"$CA_CERT"
 fi
 [ -f "$CA_CERT" ] || err "无法获取 CA 证书"
 
@@ -74,5 +86,5 @@ echo ""
 echo "=== 本机 IP ==="
 tailscale ip -4 && info "已接入 headscale 网络 ✓"
 echo ""
-echo "验证对端: tailscale ping 100.64.0.1 (公司服务器)"
+echo "验证对端: tailscale ping ${COMPANY_IP} (公司服务器)"
 echo "          tailscale ping 100.64.0.2 (腾讯云)"

@@ -1,6 +1,16 @@
 #!/bin/bash
 # Usage: TS_AUTH_KEY="tskey-auth-xxxxx" ./deploy_derp.sh
 set -e
+# 基础设施地址（gitignored: scripts/data/hosts.cfg）
+HOSTS_CFG="${HOSTS_CFG:-}"
+if [[ -z "$HOSTS_CFG" ]]; then
+    for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
+        [[ -f "$_d/hosts.cfg" ]] && { HOSTS_CFG="$_d/hosts.cfg"; break; }
+    done
+fi
+[[ -f "$HOSTS_CFG" ]] && source "$HOSTS_CFG"
+TENCENT_IP="${TENCENT_IP:-}"; SSH_USER="${SSH_USER:-}"
+
 
 if [ -z "${TS_AUTH_KEY}" ]; then
     echo "ERROR: TS_AUTH_KEY is required."
@@ -11,7 +21,7 @@ if [ -z "${TS_AUTH_KEY}" ]; then
 fi
 
 # === CONFIG ===
-DERP_HOST="${DERP_HOST:-62.234.69.194}"
+DERP_HOST="${DERP_HOST:-${TENCENT_IP}}"
 DERP_DOMAIN="${DERP_DOMAIN:-${DERP_HOST}}"
 TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-cn-derp}"
 IMAGE="${IMAGE:-lulzsec2012/derp:latest}"

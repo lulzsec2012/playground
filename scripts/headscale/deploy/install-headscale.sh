@@ -11,20 +11,40 @@
 #
 # 用法:
 #   sudo bash install-headscale.sh \
-#       --server-url https://62.234.69.194:8443 \
+#       --server-url https://${TENCENT_IP}:8443 \
 #       --listen-addr 0.0.0.0:8443 \
-#       --derp-ipv4 62.234.69.194 \
+#       --derp-ipv4 ${TENCENT_IP} \
 #       --user playground \
 #       --version 0.29.3
 # ============================================================
 set -euo pipefail
+# 基础设施地址（gitignored: scripts/data/hosts.cfg, 模板 hosts.cfg.example）
+HOSTS_CFG="${HOSTS_CFG:-}"
+if [[ -z "$HOSTS_CFG" ]]; then
+	for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
+		[[ -f "$_d/hosts.cfg" ]] && {
+			HOSTS_CFG="$_d/hosts.cfg"
+			break
+		}
+	done
+fi
+[[ -f "$HOSTS_CFG" ]] && source "$HOSTS_CFG"
+TENCENT_IP="${TENCENT_IP:-}"
+ALIYUN_IP="${ALIYUN_IP:-}"
+COMPANY_IP="${COMPANY_IP:-}"
+DEV_HOST_IP="${DEV_HOST_IP:-}"
+DEV_HOST2_IP="${DEV_HOST2_IP:-}"
+TAILSCALE_HOST_IP="${TAILSCALE_HOST_IP:-}"
+DEV_CONTAINER_IP="${DEV_CONTAINER_IP:-}"
+NAS_IP="${NAS_IP:-}"
+SSH_USER="${SSH_USER:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TEMPLATE="${SCRIPT_DIR}/templates/config.yaml.tmpl"
+TEMPLATE="${SCRIPT_DIR}/../templates/config.yaml.tmpl"
 
 # ── 默认值 ────────────────────────────────────────────────────────────────
 VERSION="0.29.3"
-SERVER_URL="https://62.234.69.194:8443"
+SERVER_URL="https://${TENCENT_IP}:8443"
 LISTEN_ADDR="0.0.0.0:8443"
 DERP_IPV4=""
 USER_NAME="playground"
@@ -256,7 +276,7 @@ cat <<EOF
        sudo headscale users list            # 找到 ${USER_NAME} 的 ID
        sudo headscale preauthkeys create -u <用户ID> --expiration 24h --reusable
     2. 在客户端信任 CA 并加入:
-       sudo bash join-client.sh --server ${SERVER_URL} \\
+       sudo bash nodes/join-client.sh --server ${SERVER_URL} \\
            --authkey hskey-auth-XXX --hostname <节点名> --ca ca.crt
 ==============================
 EOF

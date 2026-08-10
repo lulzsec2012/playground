@@ -17,13 +17,25 @@
 # 环境变量（从 data/vpn.cfg 自动读取，也可手动覆盖）:
 #   TAILSCALE_AUTH_KEY  认证密钥 (headscale preauth key, hskey- 前缀)
 #   TAILSCALE_HOSTNAME  节点主机名
-#   TAILSCALE_SERVER    控制面 URL（默认: 自建 headscale 62.234.69.194:8443）
+#   TAILSCALE_SERVER    控制面 URL（默认: 自建 headscale ${TENCENT_IP}:8443）
 #   ADVERTISE_ROUTES    subnet 模式要宣告的路由
 #   ACCEPT_ROUTES       设为 true 则接受路由
 # ============================================================
 #   TS_IMAGE            容器映像（默认: tailscale/tailscale:stable）
 
 set -euo pipefail
+# 基础设施地址（gitignored: scripts/data/hosts.cfg, 模板 hosts.cfg.example）
+HOSTS_CFG="${HOSTS_CFG:-}"
+if [[ -z "$HOSTS_CFG" ]]; then
+    for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
+        [[ -f "$_d/hosts.cfg" ]] && { HOSTS_CFG="$_d/hosts.cfg"; break; }
+    done
+fi
+[[ -f "$HOSTS_CFG" ]] && source "$HOSTS_CFG"
+TENCENT_IP="${TENCENT_IP:-}"; ALIYUN_IP="${ALIYUN_IP:-}"; COMPANY_IP="${COMPANY_IP:-}"
+DEV_HOST_IP="${DEV_HOST_IP:-}"; DEV_HOST2_IP="${DEV_HOST2_IP:-}"; TAILSCALE_HOST_IP="${TAILSCALE_HOST_IP:-}"
+DEV_CONTAINER_IP="${DEV_CONTAINER_IP:-}"; NAS_IP="${NAS_IP:-}"; SSH_USER="${SSH_USER:-}"
+
 
 # ===================== 配置 =====================
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -39,7 +51,7 @@ else
 fi
 TS_IMAGE="${TS_IMAGE:-tailscale/tailscale:stable}"
 # 默认接入自建 headscale 控制面（可用 TAILSCALE_SERVER 覆盖）
-TAILSCALE_SERVER="${TAILSCALE_SERVER:-https://62.234.69.194:8443}"
+TAILSCALE_SERVER="${TAILSCALE_SERVER:-https://${TENCENT_IP}:8443}"
 
 # 颜色
 RED='\033[0;31m'
@@ -73,7 +85,7 @@ usage() {
   $(basename "$0") basic -n my-aliyun
   $(basename "$0") exit -n aliyun-exit
   $(basename "$0") subnet -n aliyun-router -r 172.30.0.0/16
-  TAILSCALE_SERVER=https://62.234.69.194:8443 $(basename "$0") basic -n my-node
+  TAILSCALE_SERVER=https://${TENCENT_IP}:8443 $(basename "$0") basic -n my-node
 EOF
 	exit 1
 }

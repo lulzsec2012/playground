@@ -12,6 +12,29 @@
 
 **目标**：headscale 自建控制面 + 内置 DERP 中继，三台机器互联。
 
+## 目录结构
+
+```
+scripts/headscale/
+├── deploy/                  # ① 控制面部署（server: 腾讯云）
+│   └── install-headscale.sh # 控制面安装（.deb/brew + 自签 CA + DERP/STUN :8443）
+├── nodes/                   # ② 节点接入（client + 特殊节点）
+│   ├── join-client.sh       # 本机接入（信任 CA + tailscale up --login-server）
+│   ├── join-mac.sh          # Mac 重启重连（Network Extension 修复）
+│   ├── deploy-node-container.sh  # 容器化节点（basic/出口/子网路由）
+│   └── deploy-nas-jump.sh   # NAS 跳板（无 /dev/net/tun 场景）
+├── relay/                   # ③ 中继与出口（server: 腾讯云）
+│   ├── derp-deploy.sh       # DERP 中继部署
+│   ├── derp-init.sh         # DERP 容器初始化
+│   ├── derp-build_cert.sh   # 自签证书生成
+│   └── exitnode.sh          # 退出节点（出口代理）
+├── templates/               # ④ 配置模板
+│   ├── config.yaml.tmpl     # headscale 配置模板
+│   └── entrypoint.sh        # 容器节点入口脚本
+└── ops/                     # ⑤ 运维
+    └── register.sh          # hs-* CLI 注册
+```
+
 ## headscale 是什么角色
 
 | 组件 | 角色 | 说明 |
@@ -32,11 +55,11 @@ headscale 控制面**必须**能被所有节点随时访问（节点上线/重�
 | 当前 Mac | ❌ 家用 NAT 后 | ❌ | 非 24/7 | ✗ |
 | 本地 NAS (Synology) | ❌ 家用 NAT 后 | ❌ | 24/7 | ✗ |
 | 公司服务器 | ✅ (Mac 经 VPN) | ❌ 公司防火墙 | 24/7 | ✗ |
-| **腾讯云 ECS 62.234.69.194** | ✅ 公网直达 | ✅ 公网直达 | 24/7 | ✅ |
+| **腾讯云 ECS <tencent-ip>** | ✅ 公网直达 | ✅ 公网直达 | 24/7 | ✅ |
 
 **结论：控制面部署在腾讯云 ECS（唯一公网 IP 且三机均可达），并启用内置 DERP + STUN。**
 
-> 注：62.234.69.194 即现有 tailnet 中的 `tencent-relay` 节点，其上曾运行一个 derper 中继
+> 注：<tencent-ip> 即现有 tailnet 中的 `tencent-relay` 节点，其上曾运行一个 derper 中继
 > （443/TCP + 3478/UDP，为旧官方 tailnet 部署）。headscale 上线后该 derper 已**停用并删除容器**，
 > STUN 使用标准端口 **3478/UDP**。
 
@@ -49,7 +72,7 @@ headscale 控制面**必须**能被所有节点随时访问（节点上线/重�
 ## 最终架构
 
 ```
-                腾讯云 ECS 62.234.69.194
+                腾讯云 ECS <tencent-ip>
           ┌──────────────────────────────┐
           │  headscale 控制面 (:8443)     │
           │  内置 DERP 中继 (:8443)       │
@@ -78,7 +101,7 @@ headscale 内置 DERP 强制要求 `server_url` 为 HTTPS。当前无现成域�
 
 1. 控制服务器生成自签 CA + 服务器证书（SAN 含公网 IP）
 2. CA 证书分发到每个客户端系统信任库（macOS Keychain / Linux ca-certificates）
-3. 客户端 `tailscale up --login-server=https://62.234.69.194:8443`
+3. 客户端 `tailscale up --login-server=https://<tencent-ip>:8443`
 4. 后续如有域名可平滑切换到 Let's Encrypt（headscale 支持 ACME）
 
 ## 部署步骤
@@ -88,13 +111,13 @@ headscale 内置 DERP 强制要求 `server_url` 为 HTTPS。当前无现成域�
 ```bash
 # 上传脚本到 ECS（或直接从 git 拉取 playground）
 cd scripts/headscale
-scp -r . ubuntu@62.234.69.194:/tmp/headscale-deploy/
-ssh ubuntu@62.234.69.194
+scp -r . ubuntu@<tencent-ip>:/tmp/headscale-deploy/
+ssh ubuntu@<tencent-ip>
 cd /tmp/headscale-deploy
-sudo bash install-headscale.sh \
-  --server-url https://62.234.69.194:8443 \
+sudo bash deploy/install-headscale.sh \
+  --server-url https://<tencent-ip>:8443 \
   --listen-addr 0.0.0.0:8443 \
-  --derp-ipv4 62.234.69.194 \
+  --derp-ipv4 <tencent-ip> \
   --user playground
 ```
 
@@ -114,10 +137,10 @@ sudo headscale preauthkeys create --user playground
 ```bash
 cd scripts/headscale
 # 从 ECS 拉取 CA 证书:
-scp ubuntu@62.234.69.194:/var/lib/headscale/certs/ca.crt /tmp/headscale-ca.crt
+scp ubuntu@<tencent-ip>:/var/lib/headscale/certs/ca.crt /tmp/headscale-ca.crt
 
-sudo bash join-client.sh \
-  --server https://62.234.69.194:8443 \
+sudo bash nodes/join-client.sh \
+  --server https://<tencent-ip>:8443 \
   --authkey tskey-auth-xxxxxxxx \
   --hostname mac-mini \
   --ca /tmp/headscale-ca.crt
@@ -129,11 +152,11 @@ sudo bash join-client.sh \
 
 ```bash
 # 控制面查看节点
-ssh ubuntu@62.234.69.194 sudo headscale nodes list
+ssh ubuntu@<tencent-ip> sudo headscale nodes list
 
 # 客户端互 ping（tailscale 内部 IP）
 tailscale ping 100.x.x.x          # 输出 via direct 或 via DERP
-ssh lulizhi@100.x.x.x             # 走 headscale 网络 SSH
+ssh <user>@100.x.x.x             # 走 headscale 网络 SSH
 
 # 查看直连/中继路径
 tailscale netcheck
@@ -143,7 +166,7 @@ tailscale status
 ### 5. 容器化节点部署（原 scripts/tailscale 合并而来）
 
 无需在主机安装客户端，以 Docker 容器加入 headscale 网络。
-默认接入自建控制面 `https://62.234.69.194:8443`，三种模式：
+默认接入自建控制面 `https://<tencent-ip>:8443`，三种模式：
 
 ```bash
 # basic — 基础节点（仅加入网络）
@@ -159,10 +182,10 @@ HEADSCALE_AUTH_KEY=hskey-xxx bash deploy-node-container.sh subnet -n my-router -
 安全机制：密钥经 `/dev/shm` 临时文件传入容器，认证后立即清除；
 state 持久化在 Docker volume，重启免认证。
 
-> 注：原 `scripts/tailscale/` 目录已合并至此（deploy-node-container.sh + templates/ + extra/），
+> 注：原 `scripts/tailscale/` 目录已合并至此（nodes/deploy-node-container.sh + templates/ + relay/），
 > 官方 tailscale 控制面部署脚本不再需要。
 
-## 运维命令（register.sh 注册为 hs-* 别名）
+## 运维命令（ops/register.sh 注册为 hs-* 别名）
 
 | 命令 | 说明 |
 |:-----|:-----|
@@ -180,7 +203,7 @@ state 持久化在 Docker volume，重启免认证。
 局域网内 Mac 经 NAS 代理访问 tailnet，延迟仅多 ~0.5ms（千兆内网）。
 
 ```
-Mac ──局域网(≈0.5ms)──► NAS:1080 (SOCKS5) ──tailnet(DERP 12-38ms)──► 公司服务器 100.64.0.1
+Mac ──局域网(≈0.5ms)──► NAS:1080 (SOCKS5) ──tailnet(DERP 12-38ms)──► 公司服务器 <company-ip>
 ```
 
 部署（已由脚本固化）:
@@ -190,8 +213,8 @@ Mac ──局域网(≈0.5ms)──► NAS:1080 (SOCKS5) ──tailnet(DERP 12-3
 bash scripts/headscale/deploy-nas-jump.sh <preauthkey>
 
 # Mac 使用（SOCKS5 指向 NAS）:
-export ALL_PROXY="socks5h://192.168.50.179:1080"
-ssh -o ProxyCommand="nc -X 5 -x 192.168.50.179:1080 %h %p" lulizhi@100.64.0.1
+export ALL_PROXY="socks5h://<nas-ip>:1080"
+ssh -o ProxyCommand="nc -X 5 -x <nas-ip>:1080 %h %p" <user>@<company-ip>
 ```
 
 说明:
@@ -201,8 +224,8 @@ ssh -o ProxyCommand="nc -X 5 -x 192.168.50.179:1080 %h %p" lulizhi@100.64.0.1
 
 ## 故障排查
 
-- **`tailscale up` 报 TLS 错误** → CA 未信任，重跑 `join-client.sh`（或手动 `security add-trusted-cert`）
-- **节点显示 offline** → 检查 ECS 8443 端口可达性：`nc -vz 62.234.69.194 8443`
+- **`tailscale up` 报 TLS 错误** → CA 未信任，重跑 `nodes/join-client.sh`（或手动 `security add-trusted-cert`）
+- **节点显示 offline** → 检查 ECS 8443 端口可达性：`nc -vz <tencent-ip> 8443`
 - **全部走 DERP 无直连** → 公司网络对称 NAT 属预期，见上文分析
 - **headscale 服务状态** → `systemctl status headscale`（ECS），日志 `journalctl -u headscale -f`
 - **Mac 本机客户端失败** → 改用 NAS 跳板（见上），或重启 Mac 后运行 `join-mac.sh`
@@ -210,6 +233,6 @@ ssh -o ProxyCommand="nc -X 5 -x 192.168.50.179:1080 %h %p" lulizhi@100.64.0.1
 
 ## 后续扩展
 
-- 迁移其他节点（NAS/手机/其他服务器）：同一 `join-client.sh`，新节点自动进入同一 tailnet
+- 迁移其他节点（NAS/手机/其他服务器）：同一 `nodes/join-client.sh`，新节点自动进入同一 tailnet
 - 有域名后切换到 Let's Encrypt（headscale `acme` 配置），去掉自签 CA
 - 配置 ACL 策略（headscale policy 命令）实现节点间访问控制
