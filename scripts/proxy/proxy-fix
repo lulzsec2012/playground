@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# proxy-fix — 一键修复打不开的网页
+#
+# 流程:
+#   1. 快速尝试 direct / mullvad（哪个不在当前路由就试哪个）
+#   2. 如果都失败，遍历所有可用代理节点逐个测试
+#   3. 找到最优分组，设置路由，持久化
+#   4. 报告结果
+#
+# 用法: proxy-fix <domain>
+
+set -euo pipefail
+
+DOMAIN="${1:-}"
+if [ -z "$DOMAIN" ]; then
+    echo "用法: proxy-fix <domain>"
+    exit 1
+fi
+
+CONFIG="/etc/sing-box/config.json"
+CLASH_API="http://127.0.0.1:9090"
+
+log() { echo "[proxy-fix] $*"; }
+
+# ── 检测当前路由 ──
+current_route() {
+    python3 -c "
+import json
+with open('$CONFIG') as f:
+    c = json.load(f)
+for rule in c['route']['rules']:
+    if '$DOMAIN' in rule.get('domain_suffix', []):
+        print(rule.get('outbound', 'direct'))
+        break
+else:
+    print(c['route'].get('final', 'direct'))
+" 2>/dev/null || echo "unknown"
+}
+
+# ── 测试域名是否可访问（通过代理） ──
+test_url() {
+    local proxy=$1
+    local url=$2
+    local timeout=${3:-8}
+    case $proxy in
+        direct)
+            curl -sI --max-time "$timeout" "https://$url" 2>&1 | head -1 | grep -qE "200|204|301|302|403" && return 0
+            ;;
+        mullvad|mullvad-selector)
+            curl -sI --max-time "$timeout" --socks5-hostname 127.0.0.1:3000 "https://$url" 2>&1 | head -1 | grep -qE "200|204|301|302|403" && return 0
+            ;;
+        *)
+            # 通过 Clash API 临时切换到指定节点再测
+            curl -s -X PUT "$CLASH_API/proxies/mullvad-selector" \
+                -H "Content-Type: application/json" \
+                -d "{\"name\":\"$proxy\"}" >/dev/null 2>&1
+            sleep 0.5
+            curl -sI --max-time "$timeout" --socks5-hostname 127.0.0.1:3000 "https://$url" 2>&1 | head -1 | grep -qE "200|204|301|302|403" && return 0
+            ;;
+    esac
+    return 1
+}
+
+# ── 设置路由规则 ──
+set_route() {
+    local group=$1
+    log "设置路由: $DOMAIN → $group"
+
+    python3 -c "
+import json
+with open('$CONFIG') as f:
+    c = json.load(f)
+rules = c['route']['rules']
+for rule in rules:
+    if 'domain_suffix' in rule and '$DOMAIN' in rule['domain_suffix']:
+        rule['domain_suffix'] = [d for d in rule['domain_suffix'] if d != '$DOMAIN']
+if '$group' != 'direct':
+    target = None
+    for rule in rules:
+        if rule.get('outbound') == '$group' and 'domain_suffix' in rule:
+            target = rule
+            break
+    if target:
+        if '$DOMAIN' not in target['domain_suffix']:
+            target['domain_suffix'].append('$DOMAIN')
+    else:
+        rules.append({'domain_suffix': ['$DOMAIN'], 'outbound': '$group'})
+with open('$CONFIG', 'w') as f:
+    json.dump(c, f, indent=2)
+" 2>/dev/null
+
+    # 热重载
+    SB_PID=$(pgrep -f "sing-box run" | grep -v $$ | head -1)
+    if [ -n "$SB_PID" ]; then
+        sudo kill -HUP "$SB_PID" 2>/dev/null || true
+    fi
+
+    # 如果是 Mullvad，通过 API 重新选中节点
+    if echo "$group" | grep -q "mullvad"; then
+        sleep 1
+        local node=$(curl -s "$CLASH_API/proxies/mullvad-selector" 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d = json.load(sys.stdin)
+    for n in d.get('all', []):
+        if n.startswith('mullvad') and 'urltest' not in n:
+            print(n)
+            break
+except: pass
+" 2>/dev/null)
+        if [ -n "$node" ]; then
+            curl -s -X PUT "$CLASH_API/proxies/mullvad-selector" \
+                -H "Content-Type: application/json" \
+                -d "{\"name\":\"$node\"}" >/dev/null 2>&1
+        fi
+    fi
+}
+
+# ── 持久化学习结果 ──
+save_learned() {
+    local group=$1
+    python3 -c "
+import json, os, time
+path = '/etc/sing-box/learned_domains.json'
+learned = {}
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            learned = json.load(f)
+    except: pass
+learned['$DOMAIN'] = {'group': '$group', 'learned_at': time.time()}
+with open(path, 'w') as f:
+    json.dump(learned, f, indent=2)
+" 2>/dev/null
+}
+
+CURRENT=$(current_route)
+log "当前路由: $CURRENT"
+log "测试 $DOMAIN ..."
+
+# ══════════════════════════════════════════
+# 阶段 1: 快速尝试（当前不在 direct 就试 direct，不在 mullvad 就试 mullvad）
+# ══════════════════════════════════════════
+
+QUICK_WORKED=""
+
+if [ "$CURRENT" != "direct" ]; then
+    log "⏱ 快速测试 direct..."
+    if test_url direct "$DOMAIN" 5; then
+        log "✅ direct 可用！"
+        QUICK_WORKED="direct"
+    else
+        log "   direct 不可用"
+    fi
+fi
+
+if [ -z "$QUICK_WORKED" ] && [ "$CURRENT" != "mullvad-selector" ]; then
+    log "⏱ 快速测试 mullvad..."
+    if test_url mullvad "$DOMAIN" 5; then
+        log "✅ Mullvad 可用！"
+        QUICK_WORKED="mullvad-selector"
+    else
+        log "   Mullvad 不可用"
+    fi
+fi
+
+if [ -n "$QUICK_WORKED" ]; then
+    set_route "$QUICK_WORKED"
+    save_learned "$QUICK_WORKED"
+    log "🎉 $DOMAIN → $QUICK_WORKED （快速切换成功）"
+    exit 0
+fi
+
+# ══════════════════════════════════════════
+# 阶段 2: 全面遍历 — 测试所有 Mullvad 节点
+# ══════════════════════════════════════════
+
+log "🔍 快速切换无效，开始全面遍历..."
+
+# 获取所有 Mullvad 节点
+MULLVAD_NODES=$(curl -s "$CLASH_API/proxies/mullvad-selector" 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d = json.load(sys.stdin)
+    for n in d.get('all', []):
+        if n.startswith('mullvad') and 'urltest' not in n:
+            print(n)
+except: pass
+" 2>/dev/null)
+
+BEST_NODE=""
+BEST_TIME=999999
+
+for node in $MULLVAD_NODES; do
+    log "   测试节点 $node ..."
+    START=$(date +%s%N)
+    if curl -s -X PUT "$CLASH_API/proxies/mullvad-selector" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"$node\"}" >/dev/null 2>&1; then
+        sleep 0.3
+        if curl -sI --max-time 5 --socks5-hostname 127.0.0.1:3000 "https://$DOMAIN" 2>&1 | head -1 | grep -qE "200|204|301|302|403"; then
+            END=$(date +%s%N)
+            ELAPSED=$(( (END - START) / 1000000 ))
+            log "  ✅ $node 可用 (${ELAPSED}ms)"
+            if [ "$ELAPSED" -lt "$BEST_TIME" ]; then
+                BEST_TIME=$ELAPSED
+                BEST_NODE=$node
+            fi
+            # 找到一个就行，不继续测了（要的就是快）
+            break
+        fi
+    fi
+done
+
+if [ -n "$BEST_NODE" ]; then
+    log "🎉 找到可用节点: $BEST_NODE (${BEST_TIME}ms)"
+    set_route "mullvad-selector"
+    save_learned "mullvad-selector"
+    log "已设置路由: $DOMAIN → mullvad-selector (节点: $BEST_NODE)"
+    exit 0
+fi
+
+# ══════════════════════════════════════════
+# 阶段 3: 全部失败
+# ══════════════════════════════════════════
+
+log "❌ 所有代理均无法访问 $DOMAIN"
+log "建议: 1. 检查网络连接 2. 尝试直接访问（不经过代理）"
+exit 1

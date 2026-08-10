@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""proxy-optimize — 后台自动优化域名路由
+
+在 proxy-route 快速切换后执行，测试该域名在所有代理分组中的表现，
+自动切换到最优分组。
+
+用法:
+  proxy-optimize <domain>              # 分析并优化指定域名
+  proxy-optimize <domain> --once       # 只分析不修改
+"""
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import urllib.request
+
+CONFIG_PATH = "/etc/sing-box/config.json"
+LEARNED_PATH = "/etc/sing-box/learned_domains.json"
+
+# 所有可选分组（按优先级顺序，fallback兜底放最后）
+GROUPS = [
+    ("yt-selector",    "YouTube"),
+    ("gh-selector",    "GitHub"),
+    ("tg-selector",    "Telegram"),
+    ("ai-selector",    "AI"),
+    ("gg-selector",    "Google"),
+    ("docker-selector","Docker"),
+    ("hf-selector",    "HuggingFace"),
+    ("mullvad-selector", "Mullvad"),
+]
+
+TEST_TIMEOUT = 3
+
+
+def log(msg):
+    print("[proxy-optimize] {}".format(msg), flush=True)
+
+
+def test_group(group_tag, domain):
+    """测试分组对指定域名的延迟，返回 (group_tag, latency_ms) 或 None"""
+    try:
+        start = time.time()
+        cmd = [
+            "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+            "--max-time", str(TEST_TIMEOUT),
+            "--socks5-hostname", "127.0.0.1:3000",
+            "https://{}/generate_204".format(domain),
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=TEST_TIMEOUT + 0.5)
+        elapsed = (time.time() - start) * 1000
+        code = r.stdout.strip()
+        if code in ("200", "204", "301", "302", "403"):
+            return (group_tag, int(elapsed))
+    except subprocess.TimeoutExpired:
+        pass
+    except Exception:
+        pass
+    return None
+
+
+def find_best_group(domain):
+    """并行测试所有分组，返回最优的 (group_tag, latency_ms)"""
+    results = []
+
+    with ThreadPoolExecutor(max_workers=len(GROUPS)) as ex:
+        futures = {ex.submit(test_group, g, domain): g for g, _ in GROUPS}
+        for future in as_completed(futures):
+            result = future.result(timeout=TEST_TIMEOUT + 2)
+            if result:
+                results.append(result)
+
+    if not results:
+        return None
+
+    # 按延迟排序
+    results.sort(key=lambda x: x[1])
+    best = results[0]
+    log("  延迟排行:")
+    for g, ms in sorted(results, key=lambda x: x[1]):
+        label = dict(GROUPS).get(g, g)
+        marker = " ← 最优" if g == best[0] else ""
+        log("    {}: {}ms{}".format(label, ms, marker))
+
+    return best
+
+
+def update_route(domain, best_group):
+    """将域名路由更新到最优分组"""
+    try:
+        with open(CONFIG_PATH) as f:
+            config = json.load(f)
+    except Exception as e:
+        log("读取配置失败: {}".format(e))
+        return False
+
+    rules = config.get("route", {}).get("rules", [])
+
+    # 删除该域名的旧规则
+    for rule in rules:
+        if "domain_suffix" in rule and domain in rule["domain_suffix"]:
+            rule["domain_suffix"] = [d for d in rule["domain_suffix"] if d != domain]
+
+    # 如果是 direct 则无需规则
+    if best_group != "direct":
+        target = None
+        for rule in rules:
+            if rule.get("outbound") == best_group and "domain_suffix" in rule:
+                target = rule
+                break
+        if target:
+            if domain not in target["domain_suffix"]:
+                target["domain_suffix"].append(domain)
+        else:
+            rules.append({"domain_suffix": [domain], "outbound": best_group})
+
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2)
+
+    # 更新 learned_domains
+    learned = {}
+    if os.path.exists(LEARNED_PATH):
+        try:
+            with open(LEARNED_PATH) as f:
+                learned = json.load(f)
+        except Exception:
+            pass
+    learned[domain] = {"group": best_group, "learned_at": time.time()}
+    with open(LEARNED_PATH, "w") as f:
+        json.dump(learned, f, indent=2)
+
+    # 热重载
+    try:
+        pid = subprocess.check_output(
+            ["pgrep", "-f", "sing-box run"], timeout=5
+        ).decode().strip().split()
+        for p in pid:
+            p = int(p)
+            if p != os.getpid():
+                os.kill(p, signal.SIGHUP)
+                break
+    except Exception:
+        pass
+
+    return True
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("用法: proxy-optimize <domain>")
+        sys.exit(1)
+
+    domain = sys.argv[1]
+    once = "--once" in sys.argv
+
+    log("开始分析 {} 的最优分组 ...".format(domain))
+
+    best = find_best_group(domain)
+
+    if best:
+        best_group, latency = best
+        label = dict(GROUPS).get(best_group, best_group)
+        log("✅ 最优分组: {} ({}ms)".format(label, latency))
+
+        if not once:
+            update_route(domain, best_group)
+            log("🔄 已更新路由: {} → {}".format(domain, label))
+        else:
+            log("   (仅分析，未修改)")
+    else:
+        log("❌ 所有分组均不可用")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

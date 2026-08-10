@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# proxy-route — 快速切换指定域名的代理路由
+#
+# 用法:
+#   proxy-route <domain>           # 查看当前路由
+#   proxy-route <domain> direct    # 切到直连
+#   proxy-route <domain> mullvad   # 切到 Mullvad 代理
+#   proxy-route <domain> fallback  # 切到兜底分组
+#
+# 例子:
+#   proxy-route cloud.tencent.com direct    # 腾讯云走直连
+#   proxy-route twitter.com mullvad         # Twitter 走 Mullvad
+#   proxy-route google.com                  # 查看路由
+
+set -euo pipefail
+
+DOMAIN="${1:-}"
+TARGET="${2:-}"
+
+if [ -z "$DOMAIN" ]; then
+    echo "用法: $0 <domain> [direct|mullvad|fallback]"
+    exit 1
+fi
+
+CONFIG="/etc/sing-box/config.json"
+LEARNED="/etc/sing-box/learned_domains.json"
+
+# 映射简写 -> 完整的 outbound tag
+declare -A GROUP_MAP=(
+    [direct]="direct"
+    [mullvad]="mullvad-selector"
+    [fallback]="fallback-selector"
+)
+
+# ── 查看当前路由 ──
+if [ -z "$TARGET" ]; then
+    echo "🔍 $DOMAIN 当前路由:"
+    python3 -c "
+import json
+with open('$CONFIG') as f:
+    c = json.load(f)
+for rule in c['route']['rules']:
+    domains = rule.get('domain_suffix', [])
+    if '$DOMAIN' in domains:
+        print('  分组: {}'.format(rule.get('outbound', '?')))
+        break
+else:
+    print('  默认路由 (final): {}'.format(c['route'].get('final', '?')))
+" 2>/dev/null || echo "  (无法读取配置)"
+    exit 0
+fi
+
+OUTBOUND="${GROUP_MAP[$TARGET]:-$TARGET}"
+echo "🔄 切换 $DOMAIN → $OUTBOUND ..."
+
+# ── 修改配置 ──
+python3 -c "
+import json, sys
+
+with open('$CONFIG') as f:
+    c = json.load(f)
+
+rules = c['route']['rules']
+
+# 1. 删除该域名现有的所有规则
+for rule in rules:
+    if 'domain_suffix' in rule and '$DOMAIN' in rule['domain_suffix']:
+        rule['domain_suffix'] = [d for d in rule['domain_suffix'] if d != '$DOMAIN']
+        print('  从 {} 中移除'.format(rule.get('outbound', '?')))
+
+# 2. 如果目标是 direct，不需要加规则（final已经是direct）
+#    如果目标是 mullvad/fallback，需要加规则
+if '$OUTBOUND' != 'direct':
+    # 找已有的目标规则
+    target_rule = None
+    for rule in rules:
+        if rule.get('outbound') == '$OUTBOUND' and 'domain_suffix' in rule:
+            target_rule = rule
+            break
+    if target_rule:
+        if '$DOMAIN' not in target_rule['domain_suffix']:
+            target_rule['domain_suffix'].append('$DOMAIN')
+            print('  ✅ 加入 {}'.format('$OUTBOUND'))
+    else:
+        rules.append({'domain_suffix': ['$DOMAIN'], 'outbound': '$OUTBOUND'})
+        print('  ✅ 新建规则 → {}'.format('$OUTBOUND'))
+else:
+    print('  ✅ direct 无需规则（final 已是 direct）')
+
+with open('$CONFIG', 'w') as f:
+    json.dump(c, f, indent=2)
+
+# 3. 同步到 learned_domains（持久化）
+import os
+learned = {}
+if os.path.exists('$LEARNED'):
+    try:
+        with open('$LEARNED') as f:
+            learned = json.load(f)
+    except:
+        pass
+
+import time
+learned['$DOMAIN'] = {
+    'group': '$OUTBOUND',
+    'learned_at': time.time(),
+}
+with open('$LEARNED', 'w') as f:
+    json.dump(learned, f, indent=2)
+"
+
+# ── 热重载 ──
+SB_PID=$(pgrep -f "sing-box run" | grep -v $$ | head -1)
+if [ -n "$SB_PID" ]; then
+    sudo kill -HUP "$SB_PID" 2>/dev/null && echo "🔄 已重载 sing-box" || echo "⚠️ 重载失败"
+fi
+
+# ── 如果是切换 Mullvad，SIGHUP 后通过 API 重新选中节点 ──
+if [ "$TARGET" = "mullvad" ]; then
+    sleep 1
+    # 先查一下有哪些 Mullvad 节点可用
+    FIRST_NODE=$(curl -s http://127.0.0.1:9090/proxies/mullvad-selector 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d = json.load(sys.stdin)
+    all_nodes = d.get('all', [])
+    for n in all_nodes:
+        if n.startswith('mullvad') and 'urltest' not in n:
+            print(n)
+            break
+except: pass
+" 2>/dev/null)
+    if [ -n "$FIRST_NODE" ]; then
+        curl -s -X PUT http://127.0.0.1:9090/proxies/mullvad-selector \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"$FIRST_NODE\"}" >/dev/null 2>&1
+        echo "🔗 Mullvad 节点已恢复: $FIRST_NODE"
+    fi
+fi
+
+echo "✅ $DOMAIN → $TARGET 完成"
+echo "⏳ 后台分析最优分组中 ..."
+
+# 后台启动 proxy-optimize 精细分析
+if command -v proxy-optimize &>/dev/null; then
+    nohup proxy-optimize "$DOMAIN" > /tmp/proxy-optimize-${DOMAIN//./-}.log 2>&1 &
+fi

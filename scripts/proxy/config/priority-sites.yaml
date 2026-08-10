@@ -73,6 +73,8 @@ route_groups:
       - ai.com
       - copilot.microsoft.com
       - bing.com
+      - deepseek.com
+      - deepseek.cn
 
   gg:
     label: "Google"
