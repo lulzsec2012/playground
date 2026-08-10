@@ -4,9 +4,11 @@
 
 | Name | SSH Command |
 |------|-------------|
-| Dev container | `ssh lulizhi@100.122.161.91` (or `ssh lulizhi@10.10.18.210 -p 2222`) |
-| Host | `ssh lulizhi@100.117.18.87` (or `ssh lulizhi@10.10.18.210`) |
-| ECS | `ssh lzlu@39.102.52.1` |
+| Dev container | `ssh <user>@<dev-container-ip>` (or `ssh <user>@<dev-host-ip> -p 2222`) |
+| Host | `ssh <user>@<tailscale-host-ip>` (or `ssh <user>@<dev-host-ip>`) |
+| ECS | `ssh <user>@<aliyun-ip>` |
+
+> 实际 IP/用户名见 `scripts/data/hosts.cfg`（gitignored，本机已配置）。
 
 ## Project Structure
 
@@ -20,20 +22,26 @@ scripts/
 ├── emacs/           # Emacs macOS install script
 ├── fileserver/      # File server (client + server + deploy)
 ├── gitea/           # Gitea code hosting
+├── headscale/       # Self-hosted headscale control plane (replaces tailscale/)
 ├── hermes/          # Hermes toolkit
+├── homeassistant/   # Home Assistant hub
 ├── iptv/            # IPTV tools
 ├── langfuse/        # LLM token consumption analytics
-├── mixapi/          # MIXAPI management
 ├── nginx/           # Nginx config
+├── newapi/          # new-api LLM gateway (replaces mixapi/)
 ├── obsidian/        # Obsidian notes & LiveSync
 ├── opencode/        # OpenCode config & LLM Router
 ├── pesudo/          # Sudo replacement with audit
 ├── proxy/           # Proxy tools (deploy, fetch, health)
-├── tailscale/       # Tailscale node deployment
-└── tools/           # Utility scripts
+├── tools/           # Utility scripts
+└── vllm/            # vLLM model deployment
 ```
 
 New additions go into `scripts/<name>/` with its own README, scripts, and optionally a `register.sh`.
+
+### vLLM 环境隔离注意事项
+
+`scripts/vllm/` 使用 `/workspace/vllm_deploy/.venv/` 独立 Python 环境，**不能复用 `flagos/.venv`**（其 manta/microbt 自定义 PyTorch 后端 hook CUDA，会干扰 vLLM 的 NVML 设备检测）。详见 [`scripts/vllm/AGENTS.md`](file:///workspace/playground/scripts/vllm/AGENTS.md)。
 
 ## Docker-in-Docker
 

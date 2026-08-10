@@ -10,11 +10,12 @@ Containerized development environments for AI/compiler work.
 | `scripts/proxy/` | 代理服务（免费节点 + Mullvad）|
 | `scripts/opencode/` | OpenCode 配置 + LLM Router |
 | `scripts/langfuse/` | LLM Token 消耗统计 |
-| `scripts/tailscale/` | Tailscale 节点部署 |
+| `scripts/headscale/` | Headscale 自建控制面（替代 Tailscale 云）|
 | `scripts/gitea/` | Gitea 代码托管 |
-| `scripts/mixapi/` | MixAPI LLM 代理 |
+| `scripts/newapi/` | new-api LLM 网关（替代 MixAPI）|
 | `scripts/obsidian/` | Obsidian 笔记同步 |
 | `scripts/fileserver/` | 文件服务器 |
+| `scripts/homeassistant/` | 智能家居中枢 (Home Assistant) |
 | `scripts/data/` | 敏感配置（gitignored）|
 
 ---
@@ -49,16 +50,21 @@ scripts/
 │   ├── deploy.sh              # 部署脚本
 │   └── docker-compose.yml     # 完整版 Langfuse
 │
-├── tailscale/                 # Tailscale 部署
-│   └── deploy-tailscale.sh    # 基础/出口/子网路由器
+├── headscale/                 # Headscale 自建控制面
+│   ├── install-headscale.sh   # 控制服务器部署（含内置 DERP+STUN）
+│   ├── join-client.sh         # 客户端加入脚本
+│   ├── deploy-node-container.sh # 容器化节点部署（原 tailscale/ 合并）
+│   ├── templates/             # 配置模板（含容器 entrypoint）
+│   ├── extra/                 # DERP 参考脚本
+│   └── register.sh            # hs-* 命令注册
 │
 ├── gitea/                     # Gitea 代码托管
 │   ├── deploy.sh
 │   └── docker-compose.yml
 │
-├── mixapi/                    # MixAPI LLM 代理
-│   ├── setup.sh               # Docker 部署
-│   └── lib/                   # 管理脚本
+├── newapi/                    # new-api LLM 网关（替代 MixAPI）
+│   ├── deploy-newapi.sh       # Docker 部署
+│   └── register.sh            # 管理命令注册
 │
 ├── obsidian/                  # Obsidian 笔记
 │   ├── parts/deploy-couchdb.sh # LiveSync 服务端
@@ -67,6 +73,7 @@ scripts/
 ├── fileserver/                # 文件服务器
 │   ├── server/                # 服务端（ECS）
 │   └── client/                # 客户端（CLI 工具）
+├── homeassistant/             # 智能家居中枢 (Home Assistant)
 │
 ├── tools/                     # 辅助工具
 ├── emacs/                     # Emacs 安装
@@ -91,7 +98,16 @@ scripts/
 | 1081 | — | ubuntu-lite | 备用 |
 | 9090 | — | ubuntu-lite | 备用 |
 | **3020** | **Web** | **gitea** | **Gitea Web UI** |
+| **8123** | **Web** | **homeassistant** | **Home Assistant UI** |
 | 3000 | Web | (保留) | MixAPI / 旧版 |
+
+### 云服务器端口（腾讯云 <tencent-ip>）
+
+| 端口 | 协议 | 服务 | 说明 |
+|:----:|:-----|:-----|:------|
+| 8443 | TCP | headscale 控制面 + DERP | 自建控制面（替代 Tailscale 云）|
+| 3478 | UDP | headscale STUN | NAT 打洞辅助 |
+| 443 | TCP | 旧 derper（已停用） | 端口空闲 |
 
 ### 容器内端口（work-server 内部使用）
 
@@ -137,15 +153,24 @@ python3 scripts/langfuse/langfuse-lite.py --query-detail
 bash scripts/gitea/deploy.sh up    # 启动（:3020）
 bash scripts/gitea/deploy.sh logs  # 日志
 
-# ── Tailscale ──
-bash scripts/tailscale/deploy-tailscale.sh basic -n my-node
+# ── Headscale（自建控制面，替代 Tailscale 云）──
+bash scripts/headscale/register.sh      # 注册 hs-* 命令
+hs-nodes                                # 节点列表（控制面在腾讯云）
+hs-keys                                 # 预授权密钥列表
+hs-ping <company-ip>                      # tailnet 内 ping
+bash scripts/headscale/deploy-node-container.sh basic -n my-node  # 容器化节点
 
 # ── Obsidian LiveSync ──
-bash scripts/obsidian/parts/deploy-couchdb.sh --host 62.234.69.194
+bash scripts/obsidian/sync/deploy-couchdb.sh --host <tencent-ip>
 
 # ── 文件服务器 ──
 fs-up /path/to/file /remote/dir   # 上传
 fs-dl /remote/file ./             # 下载
+
+# ── Home Assistant ──
+bash scripts/homeassistant/deploy.sh           # 部署/更新
+bash scripts/homeassistant/deploy.sh --status  # 查看状态
+bash scripts/homeassistant/deploy.sh --logs    # 查看日志
 ```
 
 ---

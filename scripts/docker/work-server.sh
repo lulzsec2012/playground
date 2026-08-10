@@ -3,197 +3,219 @@ set -e
 
 # ====== Source guard: 此脚本必须 source 执行，不可直接运行 ======
 if ! (return 0 2>/dev/null); then
-    echo "错误：此脚本必须 source 执行，不可直接运行。" >&2
-    echo "" >&2
-    echo "  正确用法：" >&2
-    echo "    source scripts/docker/work-server.sh" >&2
-    echo "    work-server default        # 启动实例" >&2
-    echo "    work-server-ls             # 列出所有实例" >&2
-    echo "    work-server-exec <name>    # 进入实例" >&2
-    echo "    work-server-stop <name>    # 停止实例" >&2
-    echo "    work-server-rm <name>      # 删除实例" >&2
-    exit 1
+	echo "错误：此脚本必须 source 执行，不可直接运行。" >&2
+	echo "" >&2
+	echo "  正确用法：" >&2
+	echo "    source scripts/docker/work-server.sh" >&2
+	echo "    work-server default        # 启动实例" >&2
+	echo "    work-server-ls             # 列出所有实例" >&2
+	echo "    work-server-exec <name>    # 进入实例" >&2
+	echo "    work-server-stop <name>    # 停止实例" >&2
+	echo "    work-server-rm <name>      # 删除实例" >&2
+	exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -z "$HOST_IP" ]; then
-    # Detect physical machine IP from host network namespace (works inside containers too)
-    HOST_IP=$(docker run --rm --net=host alpine ip -o -4 addr show 2>/dev/null \
-        | grep -vE '\s+(lo|docker|br-)\s' \
-        | awk 'NR==1{print $4}' \
-        | cut -d/ -f1)
+	# Detect physical machine IP from host network namespace (works inside containers too)
+	HOST_IP=$(docker run --rm --net=host alpine ip -o -4 addr show 2>/dev/null |
+		grep -vE '\s+(lo|docker|br-)\s' |
+		awk 'NR==1{print $4}' |
+		cut -d/ -f1)
 fi
 if [ -z "$HOST_IP" ]; then
-    HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+	HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 fi
 export HOST_IP
 : "${HOST_PORT:=}"
 
 # Dockerfiles: https://github.com/lulzsec2012/docker.git
 declare -A INSTANCES=(
-    [default]="2222:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
-    [test]="2223:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
-    [cpu]="2224:lulzsec2012/work-dev:ubuntu22.04"
-    [dev]="2225:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
-    [lite]="2221:ubuntu-lite:24.04"
+	[default]="2222:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
+	[test]="2223:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
+	[cpu]="2224:lulzsec2012/work-dev:ubuntu22.04"
+	[dev]="2225:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
+	[lite]="2221:ubuntu-lite:24.04"
 )
 
 INSTANCES_DIR="$HOME/.docker/instances"
 CLASH_CONFIG="$HOME/.docker/clash_config"
 
 usage() {
-    echo "Usage: source work-server.sh && <command> [instance] [-f]"
-    echo ""
-    echo "Commands:"
-    echo "  work-server [instance] [-f]    Start container for instance"
-    echo "  work-server-exec [instance]    Enter running container"
-    echo "  work-server-ls                 List all instances"
-    echo "  work-server-rm [instance]      Remove container"
-    echo "  work-server-stop [instance]    Stop container"
-    echo ""
-    echo "Instances:"
-    for inst in "${!INSTANCES[@]}"; do
-        local IFS=":"
-        read -r port image <<< "${INSTANCES[$inst]}"
-        printf "  %-12s port=%-4s %s\n" "$inst" "$port" "$image"
-    done
+	echo "Usage: source work-server.sh && <command> [instance] [-f]"
+	echo ""
+	echo "Commands:"
+	echo "  work-server [instance] [-f]    Start container for instance"
+	echo "  work-server-exec [instance]    Enter running container"
+	echo "  work-server-ls                 List all instances"
+	echo "  work-server-rm [instance]      Remove container"
+	echo "  work-server-stop [instance]    Stop container"
+	echo ""
+	echo "Instances:"
+	for inst in "${!INSTANCES[@]}"; do
+		local IFS=":"
+		read -r port image <<<"${INSTANCES[$inst]}"
+		printf "  %-12s port=%-4s %s\n" "$inst" "$port" "$image"
+	done
 }
 
 work-server() {
-    local instance="${1:-default}"
-    local force=false
-    [[ "$2" == "-f" ]] && force=true
+	local instance="${1:-default}"
+	local force=false
+	[[ "$2" == "-f" ]] && force=true
 
-    local IFS=":"
-    read -r port image <<< "${INSTANCES[$instance]}"
-    if [[ -z "$port" ]]; then
-        echo "❌ Unknown instance: $instance"
-        echo "Available: ${!INSTANCES[*]}"
-        return 1
-    fi
+	local IFS=":"
+	read -r port image <<<"${INSTANCES[$instance]}"
+	if [[ -z "$port" ]]; then
+		echo "❌ Unknown instance: $instance"
+		echo "Available: ${!INSTANCES[*]}"
+		return 1
+	fi
 
-    # Lite mode: only 'lite' instance skips GPU/privileged flags and uses /home/$USER config
-    local is_lite=false
-    [[ "$instance" == "lite" ]] && is_lite=true
+	# Lite mode: only 'lite' instance skips GPU/privileged flags and uses /home/$USER config
+	local is_lite=false
+	[[ "$instance" == "lite" ]] && is_lite=true
 
-    local name="${USER}-work-server-${instance}"
-    local config_dir
-    config_dir=$(TMPDIR=/dev/shm mktemp -d -t "docker-instance-${instance}-XXXXXX")
-    # shellcheck disable=SC2064  # intentional: expand $config_dir now (local var out of scope on RETURN)
-    trap "rm -rf '${config_dir}'" RETURN
+	local name="${USER}-work-server-${instance}"
+	local config_dir
+	config_dir=$(TMPDIR=/dev/shm mktemp -d -t "docker-instance-${instance}-XXXXXX")
+	# shellcheck disable=SC2064  # intentional: expand $config_dir now (local var out of scope on RETURN)
+	trap "rm -rf '${config_dir}'" RETURN
 
-    echo "📝 Generating config for '$instance'..."
-    bash "$SCRIPT_DIR/generate-home-config.sh" "$config_dir"
+	echo "📝 Generating config for '$instance'..."
+	bash "$SCRIPT_DIR/generate-home-config.sh" "$config_dir"
 
-    # Auto-configure Clash proxy — if no subscription URL, download free proxies
-    if ! grep -qE '^CLASH_SUBSCRIPTION_URL=.+' "$config_dir/.ssh/vpn.cfg" 2>/dev/null; then
-        if [ ! -f "$CLASH_CONFIG/clash_config.yaml" ]; then
-            echo "📡 No Clash subscription URL. Fetching free proxies..."
-            mkdir -p "$CLASH_CONFIG"
-            if [ -f "$SCRIPT_DIR/../proxy/proxy-fetch.sh" ]; then
-                if command -v timeout &>/dev/null; then
-                    timeout 90 bash "$SCRIPT_DIR/../proxy/proxy-fetch.sh" 2>/dev/null || true
-                else
-                    bash "$SCRIPT_DIR/../proxy/proxy-fetch.sh" 2>/dev/null || true
-                fi
-                if [ -f "$SCRIPT_DIR/../proxy/config.yaml" ]; then
-                    NODES=$(grep -c '^- name:' "$SCRIPT_DIR/../proxy/config.yaml" 2>/dev/null || echo 0)
-                    if [ "$NODES" -gt 0 ]; then
-                        cp "$SCRIPT_DIR/../proxy/config.yaml" "$CLASH_CONFIG/clash_config.yaml"
-                        echo "  ✅ Free proxy config saved ($NODES nodes)"
-                    fi
-                fi
-            fi
-            if [ ! -f "$CLASH_CONFIG/clash_config.yaml" ]; then
-                echo "mixed-port: 7890" > "$CLASH_CONFIG/clash_config.yaml"
-                echo "  ℹ️ Created minimal clash config (placeholder, no nodes)"
-            fi
-        fi
-    fi
+	# Auto-configure Clash proxy — if no subscription URL, download free proxies
+	if ! grep -qE '^CLASH_SUBSCRIPTION_URL=.+' "$config_dir/.ssh/vpn.cfg" 2>/dev/null; then
+		if [ ! -f "$CLASH_CONFIG/clash_config.yaml" ]; then
+			echo "📡 No Clash subscription URL. Fetching free proxies..."
+			mkdir -p "$CLASH_CONFIG"
+			if [ -f "$SCRIPT_DIR/../proxy/proxy-fetch.sh" ]; then
+				if command -v timeout &>/dev/null; then
+					timeout 90 bash "$SCRIPT_DIR/../proxy/proxy-fetch.sh" 2>/dev/null || true
+				else
+					bash "$SCRIPT_DIR/../proxy/proxy-fetch.sh" 2>/dev/null || true
+				fi
+				if [ -f "$SCRIPT_DIR/../proxy/config.yaml" ]; then
+					NODES=$(grep -c '^- name:' "$SCRIPT_DIR/../proxy/config.yaml" 2>/dev/null || echo 0)
+					if [ "$NODES" -gt 0 ]; then
+						cp "$SCRIPT_DIR/../proxy/config.yaml" "$CLASH_CONFIG/clash_config.yaml"
+						echo "  ✅ Free proxy config saved ($NODES nodes)"
+					fi
+				fi
+			fi
+			if [ ! -f "$CLASH_CONFIG/clash_config.yaml" ]; then
+				echo "mixed-port: 7890" >"$CLASH_CONFIG/clash_config.yaml"
+				echo "  ℹ️ Created minimal clash config (placeholder, no nodes)"
+			fi
+		fi
+	fi
 
-    if docker inspect "$name" >/dev/null 2>&1; then
-        $force && docker container rm -f "$name" >/dev/null 2>&1
-    fi
+	if docker inspect "$name" >/dev/null 2>&1; then
+		$force && docker container rm -f "$name" >/dev/null 2>&1
+	fi
 
-    declare -a volumes=(
-        --volume="$HOME/workspace:/workspace:cached"
-        --volume="/var/run/docker.sock:/var/run/docker.sock"
-    )
+	declare -a volumes=(
+		--volume="$HOME/workspace:/workspace:cached"
+		--volume="/var/run/docker.sock:/var/run/docker.sock"
+	)
 
-    if [[ -d "$CLASH_CONFIG" ]]; then
-        volumes+=(--volume="$CLASH_CONFIG:/clash_config:cached")
-    fi
+	if [[ -d "$CLASH_CONFIG" ]]; then
+		volumes+=(--volume="$CLASH_CONFIG:/clash_config:cached")
+	fi
 
-    # CUDA 实例挂载共享目录
-    if ! $is_lite; then
-        declare -a shared_dirs=(
-            "/share_data" "/software_data" "/data"
-            "/zjshare_data" "/softhome" "/share" "/data_gpu"
-        )
-        for dir in "${shared_dirs[@]}"; do
-            if [[ -d "$dir" ]]; then
-                volumes+=(--volume="$dir:$dir")
-            fi
-        done
-    fi
+	# CUDA 实例挂载共享目录
+	if ! $is_lite; then
+		declare -a shared_dirs=(
+			"/share_data" "/software_data" "/data"
+			"/zjshare_data" "/softhome" "/share" "/data_gpu"
+		)
+		for dir in "${shared_dirs[@]}"; do
+			if [[ -d "$dir" ]]; then
+				volumes+=(--volume="$dir:$dir")
+			fi
+		done
+	fi
 
-    declare -a docker_opts=(
-        --log-driver=none
-    )
-    if $is_lite; then
-        # Lite: no GPU, no privileged mode
-        docker_opts+=(--security-opt seccomp=unconfined)
-    else
-        # CUDA: GPU access and performance tuning
-        declare -a gpu_opts=()
-        if docker info 2>/dev/null | grep -qi "Runtimes.*nvidia"; then
-            gpu_opts=(--gpus all)
-        fi
-        docker_opts+=(--privileged "${gpu_opts[@]}" --ipc=host --ulimit memlock=-1:-1)
-    fi
+	declare -a docker_opts=(
+		--log-driver=none
+	)
+	if $is_lite; then
+		docker_opts+=(--security-opt seccomp=unconfined --network host)
+	else
+		# CUDA: GPU access and performance tuning
+		declare -a gpu_opts=()
+		if docker info 2>/dev/null | grep -qi "Runtimes.*nvidia"; then
+			gpu_opts=(--gpus all)
+		fi
+		docker_opts+=(--privileged "${gpu_opts[@]}" --ipc=host --ulimit memlock=-1:-1)
+	fi
 
-    docker run -t "${docker_opts[@]}" \
-        --hostname="D$(hostname)" \
-        --name "$name" \
-        "${volumes[@]}" \
-        -p "$port:22" \
-        -e "HOST_IP=$HOST_IP" \
-        -e "HOST_PORT=$port" \
-        --env-file "$config_dir/.ssh/vpn.cfg" \
-        --restart=unless-stopped --detach \
-        "$image"
+	declare -a port_opts=()
+	if ! $is_lite; then
+		port_opts+=(-p "$port:22")
+	fi
 
-    echo "🔧 Setting up home directory and user..."
-    sleep 2
+	if $is_lite; then
+		# Lite: init proxy from workspace mount (scripts/proxy/data/)
+		local proxy_data_dir="/workspace/playground/scripts/proxy/data"
+		local init_script="$SCRIPT_DIR/../proxy/container-init.sh"
+		docker run -t "${docker_opts[@]}" \
+			--hostname="D$(hostname)" \
+			--name "$name" \
+			"${volumes[@]}" \
+			"${port_opts[@]}" \
+			-e "HOST_IP=$HOST_IP" \
+			-e "HOST_PORT=$port" \
+			-e "PROXY_DATA_DIR=$proxy_data_dir" \
+			--env-file "$config_dir/.ssh/vpn.cfg" \
+			--restart=unless-stopped --detach \
+			--entrypoint bash \
+			"$image" -c "$(cat "$init_script")"
+	else
+		docker run -t "${docker_opts[@]}" \
+			--hostname="D$(hostname)" \
+			--name "$name" \
+			"${volumes[@]}" \
+			"${port_opts[@]}" \
+			-e "HOST_IP=$HOST_IP" \
+			-e "HOST_PORT=$port" \
+			--env-file "$config_dir/.ssh/vpn.cfg" \
+			--restart=unless-stopped --detach \
+			"$image"
+	fi
 
-    if $is_lite; then
-        # Lite: create user first, then copy config to user's home
-        docker exec "$name" bash -c "
+	echo "🔧 Setting up home directory and user..."
+	sleep 2
+
+	if $is_lite; then
+		# Lite: create user first, then copy config to user's home
+		docker exec "$name" bash -c "
             getent group $(id -g) >/dev/null 2>&1 || groupadd -g $(id -g) $USER
             id -u $(id -u) >/dev/null 2>&1 || useradd -m -u $(id -u) -g $(id -g) -G sudo -s /bin/bash $USER
             passwd -d $USER >/dev/null 2>&1
             echo '$USER ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$USER
         " 2>&1
-        docker exec "$name" mkdir -p "/home/$USER"
-        docker cp "$config_dir/." "$name:/home/$USER/"
-        docker exec "$name" chmod 700 "/home/$USER/.ssh"
-        docker exec "$name" chmod 600 "/home/$USER/.ssh/authorized_keys"
-        docker exec "$name" chown -R "$(id -u):$(id -g)" "/home/$USER"
-        docker exec "$name" bash -c "
+		docker exec "$name" mkdir -p "/home/$USER"
+		docker cp "$config_dir/." "$name:/home/$USER/"
+		docker exec "$name" chmod 700 "/home/$USER/.ssh"
+		docker exec "$name" chmod 600 "/home/$USER/.ssh/authorized_keys"
+		docker exec "$name" chown -R "$(id -u):$(id -g)" "/home/$USER"
+		docker exec "$name" bash -c "
             SOCKET_GID=\$(stat -c '%g' /var/run/docker.sock 2>/dev/null)
             if [ -n \"\$SOCKET_GID\" ] && [ \"\$SOCKET_GID\" != \"0\" ]; then
                 getent group \$SOCKET_GID >/dev/null 2>&1 || groupadd -g \$SOCKET_GID docker
                 usermod -aG \$SOCKET_GID $USER
             fi
         " 2>&1
-    else
-        # Full: copy config to \$HOME (image has user set up), then create user
-        docker cp "$config_dir/." "$name:$HOME/"
-        docker exec "$name" chmod 700 $HOME/.ssh
-        docker exec "$name" chmod 600 $HOME/.ssh/authorized_keys
-        docker exec "$name" chown -R "$(id -u):$(id -g)" $HOME/
-        docker exec "$name" bash -c "
+	else
+		# Full: copy config to \$HOME (image has user set up), then create user
+		docker cp "$config_dir/." "$name:$HOME/"
+		docker exec "$name" chmod 700 $HOME/.ssh
+		docker exec "$name" chmod 600 $HOME/.ssh/authorized_keys
+		docker exec "$name" chown -R "$(id -u):$(id -g)" $HOME/
+		docker exec "$name" bash -c "
             getent group $(id -g) >/dev/null 2>&1 || groupadd -g $(id -g) $USER
             id -u $(id -u) >/dev/null 2>&1 || useradd -m -u $(id -u) -g $(id -g) -G sudo -s /bin/bash $USER
             passwd -d $USER >/dev/null 2>&1
@@ -204,48 +226,61 @@ work-server() {
                 usermod -aG \$SOCKET_GID $USER
             fi
         " 2>&1
-    fi
+	fi
 
-    docker exec "$name" service ssh restart >/dev/null 2>&1
+	# Lite: change SSH to $port (default 2221) to avoid port 22 conflict with host on --network host
+	# 整行锚定 ($) 防止重复执行时 Port 2221 → Port 222121
+	if $is_lite; then
+		docker exec "$name" bash -c "
+			sed -i 's/^Port 22$/Port $port/' /etc/ssh/sshd_config 2>/dev/null
+			sed -i 's/^#Port 22$/Port $port/' /etc/ssh/sshd_config 2>/dev/null
+			grep -q '^Port $port' /etc/ssh/sshd_config || echo 'Port $port' >> /etc/ssh/sshd_config
+		" 2>&1
+	fi
+	docker exec "$name" service ssh restart >/dev/null 2>&1
 
-    # Lite: 安装 docker CLI 方便容器内操作
-    if $is_lite; then
-        docker exec "$name" bash -c "
-            apt-get update -qq && apt-get install -y -qq --no-install-recommends docker.io >/dev/null 2>&1
-        " 2>&1 || true
-    fi
+	# Lite: 安装 docker CLI 方便容器内操作
+	if $is_lite; then
+		docker exec "$name" bash -c "
+			apt-get update -qq && apt-get install -y -qq --no-install-recommends docker.io >/dev/null 2>&1
+		" 2>&1 || true
+	fi
 
-    # Set tailscale hostname to dashed IP for easy identification in tailnet
-    local ts_hostname="${HOST_IP//./-}"
-    docker exec "$name" tailscale set --hostname="$ts_hostname" 2>/dev/null || true
+	# Set headscale hostname to dashed IP for easy identification in tailnet
+	local ts_hostname="${HOST_IP//./-}"
+	docker exec "$name" tailscale set --hostname="$ts_hostname" 2>/dev/null || true
 
-    local bridge_ip=$(docker inspect "$name" --format "{{.NetworkSettings.IPAddress}}")
-    echo "✅ $name started (bridge=$bridge_ip, host=127.0.0.1:$port)"
+	if $is_lite; then
+		echo "✅ $name started (network=host, ssh=127.0.0.1:$port)"
+	else
+		local bridge_ip=$(docker inspect "$name" --format "{{.NetworkSettings.IPAddress}}")
+		echo "✅ $name started (bridge=$bridge_ip, host=127.0.0.1:$port)"
+	fi
 }
 
 work-server-exec() {
-    local instance="${1:-default}"
-    docker exec -ti --user "$UID" --detach-keys "ctrl-^,ctrl-@" "${USER}-work-server-${instance}" /bin/bash
+	local instance="${1:-default}"
+	docker exec -ti --user "$UID" --detach-keys "ctrl-^,ctrl-@" "${USER}-work-server-${instance}" /bin/bash
 }
 
 work-server-ls() {
-    printf "%-12s %-5s %-40s %s\n" "INSTANCE" "PORT" "CONTAINER" "STATUS"
-    printf "%-12s %-5s %-40s %s\n" "--------" "----" "---------" "------"
-    for inst in "${!INSTANCES[@]}"; do
-        local name="${USER}-work-server-${inst}"
-        local port="${INSTANCES[$inst]%%:*}"
-        local status=$(docker inspect --format '{{.State.Status}}' "$name" 2>/dev/null || echo "stopped")
-        printf "%-12s %-5s %-40s %s\n" "$inst" "$port" "$name" "$status"
-    done
+	printf "%-12s %-5s %-40s %s\n" "INSTANCE" "PORT" "CONTAINER" "STATUS"
+	printf "%-12s %-5s %-40s %s\n" "--------" "----" "---------" "------"
+	for inst in "${!INSTANCES[@]}"; do
+		local name="${USER}-work-server-${inst}"
+		local port="${INSTANCES[$inst]%%:*}"
+		local status=$(docker inspect --format '{{.State.Status}}' "$name" 2>/dev/null || echo "stopped")
+		printf "%-12s %-5s %-40s %s\n" "$inst" "$port" "$name" "$status"
+	done
 }
 
 work-server-rm() {
-    local instance="${1:-default}"
-    echo "❌ Removing ${USER}-work-server-${instance}..."
-    docker container rm -f "${USER}-work-server-${instance}" 2>/dev/null || true
+	local instance="${1:-default}"
+	echo "❌ Removing ${USER}-work-server-${instance}..."
+	docker container rm -f "${USER}-work-server-${instance}" 2>/dev/null || true
 }
 
 work-server-stop() {
-    local instance="${1:-default}"
-    docker container stop "${USER}-work-server-${instance}" 2>/dev/null || true
+	local instance="${1:-default}"
+	docker container stop "${USER}-work-server-${instance}" 2>/dev/null || true
 }

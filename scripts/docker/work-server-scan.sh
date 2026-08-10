@@ -12,13 +12,23 @@
 #   bash work-server-scan.sh --show       # 只显示不写入
 #
 # 环境变量:
-#   WORK_SERVERS="210:10.10.18.210 211:10.10.18.211"   # 覆盖服务器列表
+#   WORK_SERVERS="210:${DEV_HOST_IP} 211:${DEV_HOST2_IP}"   # 覆盖服务器列表
 #
 # 服务器配置: 编辑 SERVERS 数组或通过环境变量 WORK_SERVERS
-#   export WORK_SERVERS="210:10.10.18.210 211:10.10.18.211"
+#   export WORK_SERVERS="210:${DEV_HOST_IP} 211:${DEV_HOST2_IP}"
 #
 
-set -euo pipefail
+set -euo
+# 基础设施地址（gitignored: scripts/data/hosts.cfg）
+HOSTS_CFG="${HOSTS_CFG:-}"
+if [[ -z "$HOSTS_CFG" ]]; then
+    for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
+        [[ -f "$_d/hosts.cfg" ]] && { HOSTS_CFG="$_d/hosts.cfg"; break; }
+    done
+fi
+[[ -f "$HOSTS_CFG" ]] && source "$HOSTS_CFG"
+DEV_HOST_IP="${DEV_HOST_IP:-}"; DEV_HOST2_IP="${DEV_HOST2_IP:-}"; ALIYUN_IP="${ALIYUN_IP:-}"; SSH_USER="${SSH_USER:-}"
+ pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -38,9 +48,9 @@ if [ -n "${WORK_SERVERS:-}" ]; then
     SERVERS["$label"]="$addr"
   done
 else
-  SERVERS["210"]="10.10.18.210"
-  SERVERS["211"]="10.10.18.211"
-  # SERVERS["ecs"]="39.102.52.1"
+  SERVERS["210"]="${DEV_HOST_IP}"
+  SERVERS["211"]="${DEV_HOST2_IP}"
+  # SERVERS["ecs"]="${ALIYUN_IP}"
 fi
 
 SSH_CONFIG_FILE="${HOME}/.ssh/config"
@@ -88,7 +98,7 @@ REMOTE_CODE
     fi
     results+=("${container_name#*-work-server-}|$host_port|$ts_ip")
   done < <(
-    ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 "lulizhi@$addr" bash -s < "$tmp_script" 2>/dev/null
+    ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 "${SSH_USER:-}@$addr" bash -s < "$tmp_script" 2>/dev/null
   )
 
   rm -f "$tmp_script"
