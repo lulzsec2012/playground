@@ -418,7 +418,7 @@ show_usage() {
   pesudo-register                        注册本机
   pesudo-register user@dev-box-2         注册远程机器（SSH 默认端口 22）
   pesudo-register user@dev-box-2 -p 2222     指定 SSH 端口
-  pesudo-register user@100.65.32.18      通过 IP 注册
+  pesudo-register user@100.100.100.100      通过 IP 注册
   pesudo-register --batch machines.txt   批量注册
 
 批量文件格式 (每行一条，支持 # 注释):

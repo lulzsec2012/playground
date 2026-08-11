@@ -120,11 +120,12 @@ def _load_hosts_cfg():
 
 _load_hosts_cfg()
 MIXAPI_BASE_URL = os.environ.get("MIXAPI_BASE_URL") or (f"http://{os.environ.get('ALIYUN_IP', '<aliyun-ip>')}:3000" if os.environ.get('ALIYUN_IP') else "<gateway-ip>")
-API_TOKEN = "5npqHnncMlBinulPU1VHcrIze9sGx3T3BsVKnBhRrzxgFpKd"
-
-# vLLM 后端所在 Tailscale 节点
-VLLM_HOST = "100.101.118.89"
+# vLLM 后端所在 Tailscale 节点（本地 hosts.cfg 可设 VLLM_IP，或环境变量 VLLM_HOST）
+VLLM_HOST = os.environ.get("VLLM_HOST") or os.environ.get("VLLM_IP", "<vllm-tailscale-ip>")
 VLLM_PORTS = list(range(8000, 8006))
+
+# MixAPI 网关 token（从环境变量/hosts.cfg 获取，不硬编码）
+API_TOKEN = os.environ.get("MIXAPI_TOKEN", "")
 
 # 模型列表（从 MixAPI 自动获取，命令行可覆盖）
 MODELS = []

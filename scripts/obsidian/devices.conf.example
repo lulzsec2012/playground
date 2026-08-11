@@ -1,0 +1,7 @@
+# Obsidian LiveSync 设备注册表 (IP -> 设备名)
+# 复制为同目录 devices.conf（gitignored）并填入实际 IP:
+#   cp devices.conf.example devices.conf
+# 供 obsidian-devices.sh 使用，把访问 IP 标注为易读名称
+# 格式: IP 设备名   （# 开头为注释）
+
+<设备-tailscale-ip>   <设备名>

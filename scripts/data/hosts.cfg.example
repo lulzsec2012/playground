@@ -11,3 +11,5 @@ DEV_HOST2_IP=<dev-host2-ip>          # 开发主机 2
 DEV_CONTAINER_IP=<dev-container-ip>  # dev 容器
 NAS_IP=<nas-ip>                      # 本地 NAS
 SSH_USER=<ssh-username>
+VLLM_IP=<vllm-tailscale-ip>          # vLLM 服务器 (tailscale 内网)
+MIXAPI_TOKEN=<mixapi-gateway-token>  # MixAPI 网关 token

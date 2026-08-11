@@ -7,3 +7,6 @@ src/
 # 运行时配置和输出
 config/
 output/
+
+# 运行时日志
+*.log

@@ -258,7 +258,7 @@ pesudo-register
 pesudo-register user@dev-box-2
 
 # 注册远程机器 + 指定 tailscale IP（避免 MagicDNS 解析问题）
-pesudo-register user@100.65.32.18 --hostname dev-box-2
+pesudo-register user@100.100.100.100 --hostname dev-box-2
 
 # 批量注册（从文件读取）
 pesudo-register --batch machines.txt
@@ -280,7 +280,7 @@ user@worker-1
   "machine_dev-box2_xxxx": {
     "hostname": "dev-box-2",
 "user": "ubuntu",
-    "tailscale_ip": "100.65.32.18",
+    "tailscale_ip": "100.100.100.100",
     "encrypted_pass": "<AES-GCM ciphertext hex>",
     "created_at": 1715760000,
     "last_used": 1715763600,
@@ -525,7 +525,7 @@ server.py ──HTTP POST──▶ hermes-api(:8642) ────────▶
 **注册通知**:
 ```
 ✅ 新机器注册成功
-机器: dev-box-2 (100.65.32.18)
+机器: dev-box-2 (100.100.100.100)
 用户: ubuntu
 ```
 
@@ -584,7 +584,7 @@ if not hermes.send_otp(...):
 {
   "machine_id": "uuid-or-hostname-hash",
   "hostname": "dev-box-2",
-  "tailscale_ip": "100.65.32.18",
+  "tailscale_ip": "100.100.100.100",
   "user": "ubuntu",
   "encrypted_pass": "<base64-encrypted-sudo-password>",
   "aliyun_auth_token": "<阿里云SSH密码派生的认证令牌>"

@@ -346,7 +346,7 @@ if os.path.exists(mv_path):
             ep = {
                 'type': 'wireguard', 'tag': ob['tag'],
                 'system': False, 'mtu': 1420,
-                'address': ob.get('local_address', ['10.73.213.61/32']),
+                'address': ob.get('local_address', ['10.0.0.1/32']),
                 'private_key': ob['private_key'],
                 'peers': [{
                     'address': ob['server'], 'port': ob.get('server_port', 51820),

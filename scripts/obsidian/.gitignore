@@ -1,1 +1,3 @@
 configs/
+# 设备 IP 注册表（含个人设备 IP，不入库；复制 devices.conf.example 为 devices.conf）
+devices.conf

@@ -18,7 +18,7 @@
 ```
 ┌─ LiteLLM（通用网关，服务所有软件）─────────────────────────────┐
 │  deploy-litellm.sh（部署时 + 定期刷新）                        │
-│    ① 探测 headscale 网络 vLLM（100.64.0.1:8000-8010 等）      │
+│    ① 探测 headscale 网络 vLLM（100.64.0.x:8000-8010 等）      │
 │    ② 探测本机 Ollama（:11434）                                │
 │    ③ 动态生成 config.yaml：                                   │
 │         model_list = [本地 vLLM(优先), Ollama, new-api 模型]   │
@@ -61,12 +61,12 @@
 
 核心流程:
   1. 探测可用后端
-     - headscale: tailscale ip -4 / 已知主机表（100.64.0.1）→ 扫 8000-8010 → /v1/models 获取模型名
+     - headscale: tailscale ip -4 / 已知主机表（100.64.0.x）→ 扫 8000-8010 → /v1/models 获取模型名
      - 本机 Ollama: localhost:11434 → /api/tags
      - new-api: 固定（环境变量或 hosts.cfg 的 ALIYUN_IP + key）
   2. 生成 config.yaml
      model_list:
-       - 本地 vLLM 模型（优先级 1，如 qwen3.6-27b @ 100.64.0.1:8002）
+       - 本地 vLLM 模型（优先级 1，如 qwen3.6-27b @ 100.64.0.x:8002）
        - Ollama 模型（可选）
        - new-api 模型（兜底）
      router_settings:

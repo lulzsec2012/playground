@@ -220,7 +220,7 @@ ssh -o ProxyCommand="nc -X 5 -x <nas-ip>:1080 %h %p" <user>@<company-ip>
 说明:
 - 容器无 `/dev/net/tun`（内核 4.4），tailscaled 用 `--tun=userspace-networking` 纯用户态模式
 - SOCKS5 监听 `0.0.0.0:1080`，容器重启后由 `/etc/rc.local` 自动拉起
-- 当前节点: `ts-nas-hs` = 100.64.0.3
+- 当前节点: `ts-nas-hs` = 100.64.0.x
 
 ## 故障排查
 
