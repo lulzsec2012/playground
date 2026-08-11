@@ -17,6 +17,19 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# 基础设施地址（gitignored: scripts/data/hosts.cfg, 模板 hosts.cfg.example）
+HOSTS_CFG="${HOSTS_CFG:-}"
+if [[ -z "$HOSTS_CFG" ]]; then
+	for _d in "$SCRIPT_DIR/../data" "$SCRIPT_DIR/../../data"; do
+		[[ -f "$_d/hosts.cfg" ]] && {
+			HOSTS_CFG="$_d/hosts.cfg"
+			break
+		}
+	done
+fi
+[[ -f "$HOSTS_CFG" ]] && source "$HOSTS_CFG"
+TENCENT_IP="${TENCENT_IP:-}"
+
 if [ -z "$HOST_IP" ]; then
 	# Detect physical machine IP from host network namespace (works inside containers too)
 	HOST_IP=$(docker run --rm --net=host alpine ip -o -4 addr show 2>/dev/null |
@@ -34,7 +47,8 @@ export HOST_IP
 declare -A INSTANCES=(
 	[default]="2222:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
 	[test]="2223:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
-	[cpu]="2224:lulzsec2012/work-dev:ubuntu22.04"
+	# linux: 非 GPU 开发容器（原 cpu 实例；work-dev:ubuntu22.04 镜像已不可拉取，改用 work-cuda-dev）
+	[linux]="2224:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
 	[dev]="2225:lulzsec2012/work-cuda-dev:cuda13.0-ubuntu24.04"
 	[lite]="2221:ubuntu-lite:24.04"
 )
@@ -145,8 +159,15 @@ work-server() {
 		docker_opts+=(--security-opt seccomp=unconfined --network host)
 	else
 		# CUDA: GPU access and performance tuning
+		# linux 实例为非 GPU 开发容器，不挂 GPU；
+		# 宿主机 nvidia 驱动异常（driver/library version mismatch）时可用 WORK_SERVER_GPU=0 强制禁用
 		declare -a gpu_opts=()
-		if docker info 2>/dev/null | grep -qi "Runtimes.*nvidia"; then
+		local use_gpu=true
+		if $is_lite || [[ "$instance" == "linux" ]]; then
+			use_gpu=false
+		fi
+		[[ "${WORK_SERVER_GPU:-1}" == "0" ]] && use_gpu=false
+		if $use_gpu && docker info 2>/dev/null | grep -qi "Runtimes.*nvidia"; then
 			gpu_opts=(--gpus all)
 		fi
 		docker_opts+=(--privileged "${gpu_opts[@]}" --ipc=host --ulimit memlock=-1:-1)
@@ -155,6 +176,35 @@ work-server() {
 	declare -a port_opts=()
 	if ! $is_lite; then
 		port_opts+=(-p "$port:22")
+	fi
+
+	# headscale 组网：设置 HEADSCALE_AUTH_KEY 后透传 tailscale 环境变量（镜像 start.sh 消费）
+	# 默认控制面 https://${TENCENT_IP}:8443（hosts.cfg），可用 HEADSCALE_SERVER 覆盖
+	# 兼容旧约定：HEADSCALE_AUTH_KEY 未设置时回退 TAILSCALE_AUTH_KEY（旧 vpn.cfg/环境变量）
+	local ts_env=()
+	local ts_auth_key="${HEADSCALE_AUTH_KEY:-${TAILSCALE_AUTH_KEY:-}}"
+	if [ -n "$ts_auth_key" ]; then
+		ts_env+=(-e "TAILSCALE_AUTH_KEY=${ts_auth_key}")
+		if [ -n "${HEADSCALE_SERVER:-}" ]; then
+			ts_env+=(-e "TAILSCALE_SERVER=${HEADSCALE_SERVER}")
+		elif [ -n "${TENCENT_IP:-}" ]; then
+			ts_env+=(-e "TAILSCALE_SERVER=https://${TENCENT_IP}:8443")
+		fi
+		ts_env+=(-e "TAILSCALE_STATE_ARG=/var/lib/tailscale/tailscaled.state")
+	fi
+
+	# headscale CA：挂载自签 CA + SSL_CERT_FILE，保证容器内 tailscaled 首次启动即可信任控制面
+	# （Go 的 x509 系统证书池只在进程启动时加载一次，事后 update-ca-certificates 不会生效）
+	# 探测顺序: HEADSCALE_CA 环境变量 > scripts/data/headscale-ca.crt > 宿主机 ca-certificates
+	local ca_src="${HEADSCALE_CA:-}"
+	if [ -z "$ca_src" ] && [ -f "$SCRIPT_DIR/../data/headscale-ca.crt" ]; then
+		ca_src="$SCRIPT_DIR/../data/headscale-ca.crt"
+	elif [ -z "$ca_src" ] && [ -f /usr/local/share/ca-certificates/headscale-ca.crt ]; then
+		ca_src=/usr/local/share/ca-certificates/headscale-ca.crt
+	fi
+	if [ -n "$ca_src" ] && [ -f "$ca_src" ]; then
+		ts_env+=(-v "$ca_src:/usr/local/share/ca-certificates/headscale-ca.crt:ro")
+		ts_env+=(-e "SSL_CERT_FILE=/usr/local/share/ca-certificates/headscale-ca.crt")
 	fi
 
 	if $is_lite; then
@@ -169,6 +219,7 @@ work-server() {
 			-e "HOST_IP=$HOST_IP" \
 			-e "HOST_PORT=$port" \
 			-e "PROXY_DATA_DIR=$proxy_data_dir" \
+			"${ts_env[@]}" \
 			--env-file "$config_dir/.ssh/vpn.cfg" \
 			--restart=unless-stopped --detach \
 			--entrypoint bash \
@@ -181,6 +232,7 @@ work-server() {
 			"${port_opts[@]}" \
 			-e "HOST_IP=$HOST_IP" \
 			-e "HOST_PORT=$port" \
+			"${ts_env[@]}" \
 			--env-file "$config_dir/.ssh/vpn.cfg" \
 			--restart=unless-stopped --detach \
 			"$image"
@@ -188,6 +240,12 @@ work-server() {
 
 	echo "🔧 Setting up home directory and user..."
 	sleep 2
+
+	# 将挂载的 headscale CA 合并进系统证书池（供容器内其他工具信任；tailscaled 走 SSL_CERT_FILE 已生效）
+	if [ -n "$ca_src" ] && [ -f "$ca_src" ]; then
+		docker exec "$name" bash -c "update-ca-certificates >/dev/null 2>&1 || true"
+		echo "  ✅ headscale CA 已注入容器"
+	fi
 
 	if $is_lite; then
 		# Lite: create user first, then copy config to user's home
@@ -246,14 +304,20 @@ work-server() {
 		" 2>&1 || true
 	fi
 
-	# Set headscale hostname to dashed IP for easy identification in tailnet
-	local ts_hostname="${HOST_IP//./-}"
-	docker exec "$name" tailscale set --hostname="$ts_hostname" 2>/dev/null || true
+	# 设置 tailscale 节点 hostname 为 ts-<host>-<port>（如 ts-211-2224），便于 tailnet 识别
+	# tailscaled 可能仍在启动/认证中，重试直到可用（最长 ~60s）
+	local ts_hostname="ts-${HOST_IP##*.}-${port}"
+	for _ in $(seq 1 30); do
+		docker exec "$name" tailscale set --hostname="$ts_hostname" 2>/dev/null && break
+		sleep 2
+	done
 
 	if $is_lite; then
 		echo "✅ $name started (network=host, ssh=127.0.0.1:$port)"
 	else
-		local bridge_ip=$(docker inspect "$name" --format "{{.NetworkSettings.IPAddress}}")
+		# 新版 docker 把 bridge IP 放在 NetworkSettings.Networks 下（顶层 IPAddress 已废弃）
+		local bridge_ip=$(docker inspect "$name" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null)
+		[ -n "$bridge_ip" ] || bridge_ip="?"
 		echo "✅ $name started (bridge=$bridge_ip, host=127.0.0.1:$port)"
 	fi
 }
