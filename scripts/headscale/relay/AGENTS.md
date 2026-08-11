@@ -68,7 +68,7 @@ APT::Install-Recommends "false";
 7. 等待 tailscaled 退出
 
 环境变量（尾端网络）：
-- `TAILSCALE_AUTH_KEY` - 认证密钥
+- `TAILSCALE_AUTH_KEY` - 认证密钥（DERP/exit-node 镜像的容器 env 契约，部署时由 `derp-deploy.sh` 的 `TS_AUTH_KEY` 传入；与已移除的 `scripts/data/vpn.cfg` 密钥无关）
 - `TAILSCALE_HOSTNAME` - 节点主机名
 - `TAILSCALE_SERVER` - 可选的自定义登录服务器
 - `TAILSCALE_STATE_ARG` - tailscaled 状态参数

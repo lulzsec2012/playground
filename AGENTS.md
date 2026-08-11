@@ -54,7 +54,7 @@ Use `/tmp/` for paths that the host Docker daemon must access
 ## Key Config Files
 
 - `scripts/data/ssh_keys.cfg` — public keys → authorized_keys for containers
-- `scripts/data/vpn.cfg` — env vars (CLASH_SUBSCRIPTION_URL, TAILSCALE_AUTH_KEY, MULLVAD_ACCOUNT)
+- `scripts/data/vpn.cfg` — env vars (CLASH_SUBSCRIPTION_URL, MULLVAD_ACCOUNT)
 - `scripts/docker/home-config/bashrc/*.sh` — combined into .bashrc in order
 - `scripts/docker/work-server.sh` — INSTANCES array defines port/image per instance
 

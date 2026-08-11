@@ -14,8 +14,8 @@
 #   ./deploy-node-container.sh exit    -n <hostname>         # Exit Node
 #   ./deploy-node-container.sh subnet  -n <hostname> -r <网段>  # Subnet Router
 #
-# 环境变量（从 data/vpn.cfg 自动读取，也可手动覆盖）:
-#   TAILSCALE_AUTH_KEY  认证密钥 (headscale preauth key, hskey- 前缀)
+# 环境变量（优先环境变量，回退 data/vpn.cfg）:
+#   HEADSCALE_AUTH_KEY  认证密钥 (headscale preauth key, 用 hs-keys 动态生成)
 #   TAILSCALE_HOSTNAME  节点主机名
 #   TAILSCALE_SERVER    控制面 URL（默认: 自建 headscale ${TENCENT_IP}:8443）
 #   ADVERTISE_ROUTES    subnet 模式要宣告的路由
@@ -27,15 +27,22 @@ set -euo pipefail
 # 基础设施地址（gitignored: scripts/data/hosts.cfg, 模板 hosts.cfg.example）
 HOSTS_CFG="${HOSTS_CFG:-}"
 if [[ -z "$HOSTS_CFG" ]]; then
-    for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
-        [[ -f "$_d/hosts.cfg" ]] && { HOSTS_CFG="$_d/hosts.cfg"; break; }
-    done
+	for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
+		[[ -f "$_d/hosts.cfg" ]] && {
+			HOSTS_CFG="$_d/hosts.cfg"
+			break
+		}
+	done
 fi
 [[ -f "$HOSTS_CFG" ]] && source "$HOSTS_CFG"
-TENCENT_IP="${TENCENT_IP:-}"; ALIYUN_IP="${ALIYUN_IP:-}"; COMPANY_IP="${COMPANY_IP:-}"
-DEV_HOST_IP="${DEV_HOST_IP:-}"; DEV_HOST2_IP="${DEV_HOST2_IP:-}"; TAILSCALE_HOST_IP="${TAILSCALE_HOST_IP:-}"
-DEV_CONTAINER_IP="${DEV_CONTAINER_IP:-}"; NAS_IP="${NAS_IP:-}"; SSH_USER="${SSH_USER:-}"
-
+TENCENT_IP="${TENCENT_IP:-}"
+ALIYUN_IP="${ALIYUN_IP:-}"
+COMPANY_IP="${COMPANY_IP:-}"
+DEV_HOST_IP="${DEV_HOST_IP:-}"
+DEV_HOST2_IP="${DEV_HOST2_IP:-}"
+DEV_CONTAINER_IP="${DEV_CONTAINER_IP:-}"
+NAS_IP="${NAS_IP:-}"
+SSH_USER="${SSH_USER:-}"
 
 # ===================== 配置 =====================
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -86,6 +93,7 @@ usage() {
   $(basename "$0") exit -n aliyun-exit
   $(basename "$0") subnet -n aliyun-router -r 172.30.0.0/16
   TAILSCALE_SERVER=https://${TENCENT_IP}:8443 $(basename "$0") basic -n my-node
+  HEADSCALE_AUTH_KEY=hskey-xxx $(basename "$0") basic -n my-node
 EOF
 	exit 1
 }
@@ -115,9 +123,13 @@ command -v docker &>/dev/null || err "Docker not found. Please install Docker fi
 [ -f "$VPN_CFG" ] || err "VPN config not found: ${VPN_CFG}"
 [ -d "$TEMPLATES_DIR" ] || err "Templates directory not found: ${TEMPLATES_DIR}"
 
-# 读取密钥
-AUTH_KEY=$(grep "^TAILSCALE_AUTH_KEY=" "$VPN_CFG" | head -1 | cut -d= -f2-)
-[ -n "$AUTH_KEY" ] || err "TAILSCALE_AUTH_KEY not found in ${VPN_CFG}"
+# 读取密钥：优先环境变量 HEADSCALE_AUTH_KEY（动态生成、临时传入），
+# 回退读取 vpn.cfg 中的 HEADSCALE_AUTH_KEY 行
+AUTH_KEY="${HEADSCALE_AUTH_KEY:-}"
+if [ -z "$AUTH_KEY" ] && [ -f "$VPN_CFG" ]; then
+	AUTH_KEY=$(grep "^HEADSCALE_AUTH_KEY=" "$VPN_CFG" | head -1 | cut -d= -f2-)
+fi
+[ -n "$AUTH_KEY" ] || err "HEADSCALE_AUTH_KEY not set (export HEADSCALE_AUTH_KEY or add it to ${VPN_CFG})"
 
 # 生成 hostname
 if [ -z "$HOSTNAME" ]; then
@@ -273,8 +285,8 @@ cat <<EOF
     docker rm -f ${CONTAINER_NAME}                       删除节点
 
   密钥安全提醒:
-    - 认证密钥保存在: ${VPN_CFG}
-    - 确认节点成功加入 tailnet 后，可手动从 ${VPN_CFG} 删除该密钥
+    - 认证密钥来源: 环境变量 HEADSCALE_AUTH_KEY（推荐，用 hs-keys 动态生成）或 ${VPN_CFG} 中的 HEADSCALE_AUTH_KEY 行
+    - 确认节点成功加入 tailnet 后，可手动从 ${VPN_CFG} 删除密钥行
     - 容器认证完成后容器内部已清除密钥
     - 本脚本不会自动修改 ${VPN_CFG}
 

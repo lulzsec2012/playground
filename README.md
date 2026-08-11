@@ -27,7 +27,6 @@ Containerized development environments for AI/compiler work.
 scripts/
 ├── data/                      # 敏感配置 (gitignored)
 │   ├── vpn.cfg                # Tailscale/Mullvad 账号
-│   ├── env.cfg                # API Keys
 │   └── ssh_keys.cfg           # SSH 公钥
 │
 ├── docker/                    # Docker 容器管理

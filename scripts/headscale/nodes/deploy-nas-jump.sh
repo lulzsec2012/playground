@@ -18,15 +18,22 @@ set -euo pipefail
 # 基础设施地址（gitignored: scripts/data/hosts.cfg, 模板 hosts.cfg.example）
 HOSTS_CFG="${HOSTS_CFG:-}"
 if [[ -z "$HOSTS_CFG" ]]; then
-    for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
-        [[ -f "$_d/hosts.cfg" ]] && { HOSTS_CFG="$_d/hosts.cfg"; break; }
-    done
+	for _d in "$(dirname "${BASH_SOURCE[0]}")/../../data" "$(dirname "${BASH_SOURCE[0]}")/../data"; do
+		[[ -f "$_d/hosts.cfg" ]] && {
+			HOSTS_CFG="$_d/hosts.cfg"
+			break
+		}
+	done
 fi
 [[ -f "$HOSTS_CFG" ]] && source "$HOSTS_CFG"
-TENCENT_IP="${TENCENT_IP:-}"; ALIYUN_IP="${ALIYUN_IP:-}"; COMPANY_IP="${COMPANY_IP:-}"
-DEV_HOST_IP="${DEV_HOST_IP:-}"; DEV_HOST2_IP="${DEV_HOST2_IP:-}"; TAILSCALE_HOST_IP="${TAILSCALE_HOST_IP:-}"
-DEV_CONTAINER_IP="${DEV_CONTAINER_IP:-}"; NAS_IP="${NAS_IP:-}"; SSH_USER="${SSH_USER:-}"
-
+TENCENT_IP="${TENCENT_IP:-}"
+ALIYUN_IP="${ALIYUN_IP:-}"
+COMPANY_IP="${COMPANY_IP:-}"
+DEV_HOST_IP="${DEV_HOST_IP:-}"
+DEV_HOST2_IP="${DEV_HOST2_IP:-}"
+DEV_CONTAINER_IP="${DEV_CONTAINER_IP:-}"
+NAS_IP="${NAS_IP:-}"
+SSH_USER="${SSH_USER:-}"
 
 NAS_HOST="${NAS_HOST:-${NAS_IP}}"
 NAS_PORT="${NAS_PORT:-2221}"
