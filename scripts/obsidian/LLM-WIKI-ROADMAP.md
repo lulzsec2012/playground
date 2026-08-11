@@ -249,14 +249,14 @@ opencode/     obsidian-mcp-server + writeback  AI 笔记/会话沉淀（§9.3）
 ┌─ 开发服务器 (公司) ─────────────────────────────────────┐
 │  opencode (opencode.json)                               │
 │    └─ MCP remote: obsidian-mcp-server                   │
-│         read/write → http://62.234.69.194:3100/mcp      │
+│         read/write → http://<tencent-ip>:3100/mcp      │
 │                                                         │
 │  会话沉淀 (cron 每30min):                                │
 │    opencode.db → markdown 笔记 → POST 腾讯云写入端点      │
 └──────────────────────────┬──────────────────────────────┘
                            │ HTTP + Bearer token
 ┌──────────────────────────▼──────────────────────────────┐
-│ 腾讯云 62.234.69.194                                    │
+│ 腾讯云 <tencent-ip>                                    │
 │                                                         │
 │  ① obsidian-mcp-server  (node, systemd)                 │
 │     filesystem 模式 → /opt/llmwiki/sources/             │
@@ -320,7 +320,7 @@ watch /opt/llmwiki/sources/ (inotify + 启动全量扫描)
 "mcp": {
   "obsidian": {
     "type": "remote",
-    "url": "http://62.234.69.194:3100/mcp",
+    "url": "http://<tencent-ip>:3100/mcp",
     "headers": { "Authorization": "Bearer <token>" },
     "enabled": true
   }

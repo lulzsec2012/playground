@@ -1,0 +1,127 @@
+# Immich + 扩展工具 Docker Compose 模板
+# 由 deploy-immich.sh 渲染生成（占位符被替换）
+# 结构: Immich 全家桶 + NSFW 检测 + Ollama + AI 打标签
+
+services:
+  # ── Immich 核心 ──
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-release}
+    container_name: immich-server
+    restart: unless-stopped
+    command: ['start.sh', 'immich']
+    volumes:
+      - ${UPLOAD_LOCATION}:/usr/src/app/upload
+    environment:
+      - DB_HOSTNAME=immich-postgres
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_DATABASE_NAME=${DB_DATABASE_NAME}
+      - REDIS_HOSTNAME=immich-redis
+      - MACHINE_LEARNING_ENABLED=true
+      - MACHINE_LEARNING_URL=${MACHINE_LEARNING_URL}
+      - IMMICH_VERSION=${IMMICH_VERSION:-release}
+    ports:
+      - ${IMMICH_PORT:-2283}:2283
+    depends_on:
+      - immich-postgres
+      - immich-redis
+${ML_DEPENDS}
+    networks:
+      - immich-net
+
+${SERVICE_ML_BEGIN}
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
+    container_name: immich-machine-learning
+    restart: unless-stopped
+    volumes:
+      - ${ML_CACHE:-./model-cache}:/cache
+${ML_GPU_SECTION}
+    environment:
+      - MACHINE_LEARNING_WORKERS=1
+      - MACHINE_LEARNING_HTTP_PORT=3003
+    networks:
+      - immich-net
+${SERVICE_ML_END}
+
+  immich-postgres:
+    image: tensorchord/pgvecto-rs:pg14-v0.3.0
+    container_name: immich-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_DATABASE_NAME}
+    volumes:
+      - ${DB_DATA_LOCATION}:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE_NAME}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - immich-net
+
+  immich-redis:
+    image: redis:6.2-alpine
+    container_name: immich-redis
+    restart: unless-stopped
+    healthcheck:
+      test: redis-cli ping
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - immich-net
+
+  # ── NSFW 检测 (ViT, 纯 CPU) ──
+  nsfw:
+    image: helloz/nsfw
+    container_name: nsfw
+    restart: unless-stopped
+    environment:
+      - TOKEN=${NSFW_TOKEN}
+      - WORKERS=${NSFW_WORKERS:-1}
+    ports:
+      - ${NSFW_PORT:-6086}:6086
+    networks:
+      - immich-net
+
+  # ── Ollama (VLM 打标签后端) ──
+${SERVICE_OLLAMA_BEGIN}
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+${OLLAMA_GPU_SECTION}
+    volumes:
+      - ${OLLAMA_DATA:-./ollama-data}:/root/.ollama
+    ports:
+      - ${OLLAMA_PORT:-11434}:11434
+    networks:
+      - immich-net
+${SERVICE_OLLAMA_END}
+
+  # ── AI 打标签 (VLM 描述+关键词 → Immich) ──
+  immich-analyze:
+    image: ghcr.io/timasoft/immich-analyze:main
+    container_name: immich-analyze
+    restart: unless-stopped
+    environment:
+      - IMMICH_ANALYZE_MODE=${ANALYZE_MODE:-combined}
+      - IMMICH_ANALYZE_INTERFACE=ollama
+      - IMMICH_ANALYZE_HOSTS=${ANALYZE_HOSTS}
+      - IMMICH_ANALYZE_MODEL_NAME=${ANALYZE_MODEL:-qwen3-vl:4b-thinking-q4_K_M}
+      - IMMICH_ANALYZE_DATA_ACCESS_MODE=immich-api
+      - IMMICH_ANALYZE_API_URL=http://immich-server:${IMMICH_PORT:-2283}/api
+      - IMMICH_ANALYZE_API_KEY=${IMMICH_API_KEY}
+      - IMMICH_ANALYZE_OVERWRITE_POLICY=${ANALYZE_OVERWRITE:-missing-ai}
+    depends_on:
+      - immich-server
+${ANALYZE_DEPENDS}
+    networks:
+      - immich-net
+
+networks:
+  immich-net:
+    driver: bridge

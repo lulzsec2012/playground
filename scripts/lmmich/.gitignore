@@ -1,0 +1,5 @@
+.env
+upload/
+postgres/
+model-cache/
+ollama-data/

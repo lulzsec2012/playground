@@ -27,6 +27,7 @@ scripts/
 ├── homeassistant/   # Home Assistant hub
 ├── iptv/            # IPTV tools
 ├── langfuse/        # LLM token consumption analytics
+├── lmmich/          # Immich photo management & NSFW pipeline
 ├── nginx/           # Nginx config
 ├── newapi/          # new-api LLM gateway (replaces mixapi/)
 ├── obsidian/        # Obsidian notes & LiveSync

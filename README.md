@@ -16,6 +16,7 @@ Containerized development environments for AI/compiler work.
 | `scripts/obsidian/` | Obsidian 笔记同步 |
 | `scripts/fileserver/` | 文件服务器 |
 | `scripts/homeassistant/` | 智能家居中枢 (Home Assistant) |
+| `scripts/lmmich/` | Immich 照片管理 + NSFW 流水线 |
 | `scripts/data/` | 敏感配置（gitignored）|
 
 ---
@@ -82,6 +83,7 @@ scripts/
 ├── hermes/                    # Hermes 工具箱
 ├── pesudo/                    # sudo 审计
 ├── iptv/                      # IPTV 工具
+├── lmmich/                    # Immich 照片管理 + NSFW 识别流水线
 └── nginx/                     # Nginx 配置
 ```
 
