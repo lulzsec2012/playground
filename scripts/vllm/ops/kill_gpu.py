@@ -99,32 +99,27 @@ def _find_procs_on_gpus(target_gpus: set[int]) -> dict[int, set[int]]:
 
         pgpus = _expand_gpus(cvd)
         if not pgpus:
-            # CUDA_VISIBLE_DEVICES 未设置或为空 → 检查是否持 nvidia fd
-            try:
-                fd_dir = os.listdir(f"/proc/{pid}/fd")
-                if any("nvidia" in os.readlink(f"/proc/{pid}/fd/{fd}")
-                       for fd in fd_dir):
-                    pgpus = target_gpus
-            except OSError:
-                continue
+            # CUDA_VISIBLE_DEVICES 为空 → 无法确定 GPU，跳过（宁可不杀，不可错杀）
+            # 注意：vLLM worker 若未继承 cvd 也会在此跳过，避免误伤其他实例
+            continue
 
         overlap = pgpus & target_gpus
         if overlap:
             result[pid] = overlap
 
-        # 检查子进程（VLLM Worker 线程）
-        try:
-            with open(f"/proc/{pid}/task/{pid}/children") as f:
-                for child_pid in f.read().strip().split():
-                    if child_pid:
-                        cp = int(child_pid)
-                        try:
-                            if os.stat(f"/proc/{cp}").st_uid == me:
-                                result[cp] = overlap
-                        except OSError:
-                            pass
-        except OSError:
-            pass
+            # 子进程仅在父进程命中目标 GPU 时一并处理（防止误杀其他实例的 worker）
+            try:
+                with open(f"/proc/{pid}/task/{pid}/children") as f:
+                    for child_pid in f.read().strip().split():
+                        if child_pid:
+                            cp = int(child_pid)
+                            try:
+                                if os.stat(f"/proc/{cp}").st_uid == me:
+                                    result[cp] = overlap
+                            except OSError:
+                                pass
+            except OSError:
+                pass
 
     return result
 

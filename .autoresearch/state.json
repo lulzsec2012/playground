@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "run_id": "run-msygsksm",
+  "created_at": "2026-08-18T09:32:52.676Z",
+  "updated_at": "2026-08-18T09:32:52.676Z",
+  "status": "completed",
+  "mode": "foreground",
+  "operating_mode": "continuous",
+  "scope": "scripts/vllm/ (deploy_models.py, bench_probe.py) + /workspace/vllm_deploy/, qwen3.8-27b-fp8, TP4 on GPUs 4-7",
+  "metric": {
+    "name": "bench_score",
+    "direction": "higher",
+    "baseline": 66.48,
+    "latest": 68.49,
+    "best": 76.15
+  },
+  "label_requirements": {
+    "keep": [],
+    "stop": []
+  },
+  "artifact_paths": {
+    "results": "/workspace/playground/autoresearch-results.tsv",
+    "state": "/workspace/playground/.autoresearch/state.json"
+  },
+  "stats": {
+    "total_iterations": 10,
+    "kept": 4,
+    "discarded": 5,
+    "needs_human": 0,
+    "best_iteration": 7,
+    "discard_streak": 0
+  },
+  "flags": {
+    "stop_requested": false,
+    "needs_human": false,
+    "background_active": false,
+    "stop_ready": false
+  },
+  "subagent_pool": {
+    "kind": "autoresearch_subagent_pool",
+    "version": 1,
+    "pool_key": "autoresearch-pool-msygsksm-0",
+    "role_limit": 6,
+    "standing_pool": true,
+    "reuse_across_iterations": true,
+    "orchestrator_role_id": "orchestrator",
+    "state_owner": "orchestrator",
+    "fallback_mode": "serial",
+    "resource_tier": "balanced",
+    "recommended_active_role_ids": [
+      "orchestrator",
+      "scout",
+      "analyst",
+      "verifier"
+    ],
+    "activation": {
+      "during_setup": true,
+      "during_iterations": true,
+      "during_resume": true,
+      "reason": "Moderate work benefits from balanced coverage."
+    },
+    "handoff_contract": [
+      "Only the orchestrator records iterations or mutates state.",
+      "Non-orchestrator roles return evidence and concise recommendations.",
+      "Keep the pool stable across iterations."
+    ],
+    "reanchor_checklist": [
+      "Restate the goal, scope, metric, and verify command before the next handoff.",
+      "Summarize the latest kept or discarded iteration before asking the pool for more work.",
+      "Reuse current role ownership unless drift or repeated discards force a reset."
+    ],
+    "scope": "current repository",
+    "mode": "foreground",
+    "roles": [
+      {
+        "id": "orchestrator",
+        "name": "Orchestrator",
+        "focus": "Keep the goal, scope, and mode aligned; route work and merge results.",
+        "active_by_default": true,
+        "handoff_prompt": "You are the Orchestrator. Focus: Keep the goal, scope, and mode aligned; route work and merge results. Goal: undefined. Scope: current repository. Mode: foreground. Do not mutate autoresearch state. Return evidence and one next-step recommendation."
+      },
+      {
+        "id": "scout",
+        "name": "Scout",
+        "focus": "Locate relevant files, docs, commands, and prior context in the repo.",
+        "active_by_default": true,
+        "handoff_prompt": "You are the Scout. Focus: Locate relevant files, docs, commands, and prior context in the repo. Goal: undefined. Scope: current repository. Mode: foreground. Do not mutate autoresearch state. Return evidence and one next-step recommendation."
+      },
+      {
+        "id": "analyst",
+        "name": "Analyst",
+        "focus": "Turn evidence into options, tradeoffs, and a clear next-step recommendation.",
+        "active_by_default": true,
+        "handoff_prompt": "You are the Analyst. Focus: Turn evidence into options, tradeoffs, and a clear next-step recommendation. Goal: undefined. Scope: current repository. Mode: foreground. Do not mutate autoresearch state. Return evidence and one next-step recommendation."
+      },
+      {
+        "id": "verifier",
+        "name": "Verifier",
+        "focus": "Check claims with commands, tests, or log reads before the pool settles.",
+        "active_by_default": true,
+        "handoff_prompt": "You are the Verifier. Focus: Check claims with commands, tests, or log reads before the pool settles. Goal: undefined. Scope: current repository. Mode: foreground. Do not mutate autoresearch state. Return evidence and one next-step recommendation."
+      },
+      {
+        "id": "synthesizer",
+        "name": "Synthesizer",
+        "focus": "Condense the best evidence into a stable summary the orchestrator can reuse.",
+        "active_by_default": false,
+        "handoff_prompt": "You are the Synthesizer. Focus: Condense the best evidence into a stable summary the orchestrator can reuse. Goal: undefined. Scope: current repository. Mode: foreground. Do not mutate autoresearch state. Return evidence and one next-step recommendation."
+      }
+    ],
+    "specialization": null
+  },
+  "continuation_policy": {
+    "approval_boundary": "pre_launch",
+    "post_launch_default": "continue",
+    "completion_requires_review": true,
+    "stop_conditions": [
+      "user_stop",
+      "configured_stop_condition",
+      "needs_human"
+    ]
+  },
+  "budget_exhausted": false,
+  "lineage": {
+    "id": "exp-run-msygsksm",
+    "parent_id": null,
+    "branch": "main",
+    "stage": "experiment",
+    "agent": "orchestrator"
+  },
+  "goal": "在空闲 GPU 4-7 (4xRTX4090) 上部署 Qwen3.8-27B-FP8 并测试最优部署方案（bench Score 最大化），参考 Qwen3.6-27B 部署脚本，不得干扰 GPU 0-3 上运行的 qwen3.6-27b (port 8002)",
+  "verify": "python3 /workspace/playground/scripts/vllm/bench/bench_probe.py --port 8007 --model qwen3.8-27b",
+  "guard": "curl -sf http://127.0.0.1:8002/v1/models >/dev/null && echo OK (qwen3.6 必须保持健康)",
+  "stop_condition": "Score 收敛（连续 2 次迭代无提升）或迭代数达 8",
+  "last_iteration": {
+    "number": 10,
+    "config": "TP4 MTP5 int8kv block32 seqs20 bt8192 mml262144 prefix-on GPU4-7 port8007",
+    "score": 68.49,
+    "decision": "keep",
+    "details": "最终配置稳定 ~69-76 Score, 95-112 tok/s. 3.8 比 3.6 同配置慢 ~33% (模型差异)."
+  }
+}

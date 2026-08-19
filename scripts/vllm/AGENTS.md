@@ -46,6 +46,8 @@ python3.12 -m venv /workspace/vllm_deploy/.venv
 │   ├── .venv/                  ← vLLM 专用干净 Python 环境（必须）
 │   ├── models/                 ← 模型权重（git 外，365GB）
 │   │   ├── qwen3.6-27b/        ← Qwen3.6-27B (Qwen3_5ForConditionalGeneration)
+│   │   ├── qwen3.8-27b-fp8/    ← Qwen3.8-27B-FP8 (同架构)
+│   │   ├── gemma4-26b-fp8/     ← Gemma4-26B-FP8
 │   │   ├── gemma4-26b-fp8/     ← Gemma4-26B-FP8
 │   │   └── gemma4-26b-mtp-vllm/← Gemma4 MTP speculative model
 │   └── logs/                   ← 运行时日志
@@ -72,6 +74,9 @@ python deploy/deploy_models.py --quick --watchdog
 
 # 只部署 Qwen TP4
 python deploy/deploy_models.py --quick --watchdog --model qwen
+
+# 只部署 Qwen3.8 TP4 (GPU 4-7, port 8007)
+python deploy/deploy_models.py --quick --watchdog --model qwen38
 
 # 只部署 Gemma TP2
 python deploy/deploy_models.py --quick --watchdog --model gemma
@@ -130,9 +135,21 @@ python ops/kill_gpu.py --all             # 释放所有 GPU
 | 模型 | 架构 | 参数量 | 量化 | VRAM/GPU (TP4) |
 |------|------|--------|------|----------------|
 | Qwen3.6-27B | `Qwen3_5ForConditionalGeneration` | 27B | FP8 | ~17.5 GB |
+| Qwen3.8-27B | `Qwen3_5ForConditionalGeneration` | 27B | FP8 | ~17.5 GB |
 | Gemma4-26B-FP8 | `Gemma4ForConditionalGeneration` | 26B | FP8 | ~23 GB (TP2) |
 
-Qwen3.6 是混合架构（Hybrid: Transformer + Mamba layers），支持 MTP speculative decoding。
+Qwen3.6/3.8 均为混合架构（Hybrid: Transformer + Mamba layers），支持 MTP speculative decoding。
+
+### Qwen3.8-27B-FP8 最优部署 (2026-08-18 调优)
+
+```bash
+python deploy/deploy_models.py --quick --watchdog --model qwen38
+# = GPU 4-7, TP4, port 8007
+# = block32 + MTP3 + int8kv + seqs20 + bt8192 + mml262144 + prefix-caching
+# = + --reasoning-parser qwen3 (reasoning 模型必需)
+# = Score ~70 (吞吐 ~100 tok/s), 比 3.6 同配置慢 ~30% (模型差异)
+# = seqs=20 明确增益 (+12%); MTP3 接受率 56% (vs MTP5 的 37%)
+```
 
 ---
 

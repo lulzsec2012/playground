@@ -122,6 +122,7 @@ scripts/
 | **8001** | **vLLM** | `vllm_deploy` | gemma4-26b-fp8 |
 | **8002** | **vLLM** | `vllm_deploy` | qwen3.6-27b |
 | **8003** | **vLLM** | `vllm_deploy` | qwen3-coder-next-fp8 |
+| **8007** | **vLLM** | `vllm_deploy` | qwen3.8-27b-fp8 |
 | **3010** | **Langfuse Lite** | `scripts/langfuse/langfuse-lite.py` | Token 统计 |
 
 > **端口冲突规则**: 新服务选端口时，先在 README 确认是否已被占用。

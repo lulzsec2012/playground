@@ -1,0 +1,12 @@
+timestamp	iteration	decision	metric_value	verify_status	guard_status	hypothesis	change_summary	labels	note
+2026-08-18T18:20	1	keep	66.48	pass	pass	基线: 3.6同款(block32+MTP5+int8kv+seqs10)	baseline	first deploy
+2026-08-18T18:40	2	discard	43.35	pass	pass	mtp=0: 无speculative大幅下降	perf	MTP对3.8重要
+2026-08-18T19:00	3	discard	60.45	pass	pass	kv_dtype=fp8	perf	int8_per_token_head更优
+2026-08-18T19:15	4	discard	65.79	pass	pass	block_size=128	perf	block32更优
+2026-08-18T19:35	5	keep	74.49	pass	pass	seqs=20	perf	+12% 明显提升
+2026-08-18T19:55	6	discard	69.41	pass	pass	bt=12288	perf	bt16384部署失败,12288不如8192
+2026-08-18T20:10	7	keep	76.15	pass	pass	mml=131072	perf	噪声内,保留262k保长上下文
+2026-08-18T20:30	8	discard	69.75	pass	pass	seqs=32	perf	seqs20最优
+2026-08-18T20:50	9	keep	69.27	pass	pass	复测最优配置(mml262k+seqs20)	verify	波动±5%,稳定~69
+2026-08-18T21:10	10	keep	68.49	pass	pass	最终配置部署+验证	final	3.6不受影响
+2026-08-18T21:40	11	keep	70.57	pass	pass	MTP=3 + --reasoning-parser qwen3	perf	MTP接受率 37.4%->56.4%, 吞吐 +4%; bench_probe 修复 reasoning 字段支持

@@ -297,14 +297,15 @@ def test_streaming(url, model, messages, max_tokens, timeout=None, headers=None)
                 choices = chunk.get("choices", [])
                 if choices:
                     delta = choices[0].get("delta", {})
-                    content = delta.get("content", "")
-                    if content:
-                        output_parts.append(content)
+                    # 兼容 reasoning 模型 (--reasoning-parser): reasoning/reasoning_content 都计入生成
+                    content = delta.get("content", "") or ""
+                    reasoning = delta.get("reasoning", "") or delta.get("reasoning_content", "") or ""
+                    if content or reasoning:
+                        output_parts.append(content + reasoning)
                         if not ttft_recorded:
                             first_token_time = time.perf_counter()
                             ttft_recorded = True
                             result["ttft_s"] = round(first_token_time - t_start, 4)
-
                     fr = choices[0].get("finish_reason")
                     if fr:
                         finish_reason = fr

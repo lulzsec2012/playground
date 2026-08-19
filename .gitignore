@@ -31,3 +31,8 @@ scripts/gitea/data/
 
 # macOS
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/

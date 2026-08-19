@@ -141,10 +141,34 @@ MODELS = [
         ],
         "desc": "TP4 最优 (seqs20 + bt32k, Score 97.8)",
     },
+    {
+        "id": 5,
+        "name": "Qwen3.8-27B FP8 TP4",
+        "model": str(VLLM_DEPLOY_DIR / "models/qwen3.8-27b-fp8"),
+        "tp": 4,
+        "mem": 0.93,
+        "mml": 262144,
+        "bt": 8192,
+        "seqs": 20,
+        "kv_dtype": "int8_per_token_head",
+        "prefetch": True,
+        "o3": True,
+        "block_size": 32,  # 3.6 TP4 同款优化
+        "mtp": 3,
+        "extra_args": [
+            "--reasoning-parser",
+            "qwen3",
+            "--enable-auto-tool-choice",
+            "--tool-call-parser",
+            "qwen3_coder",
+            "--language-model-only",
+        ],
+        "desc": "TP4 最优 (MTP3 + rp + block32 + seqs20, Score 70.6)",
+    },
 ]
 
 # 端口默认分配 (可动态调整防冲突)
-DEFAULT_PORTS = {1: 8002, 2: 8004, 3: 8005, 4: 8006}
+DEFAULT_PORTS = {1: 8002, 2: 8004, 3: 8005, 4: 8006, 5: 8007}
 
 
 # ── GPU 分配 ───────────────────────────────────────────────────────────
@@ -278,6 +302,13 @@ MODEL_HF_MAP = {
     "qwen3.6-27b": "Qwen/Qwen3.6-27B",
     "gemma4-26b-fp8": "google/gemma-4-26b-it-FP8",
     "gemma4-26b-mtp-vllm": "google/gemma-4-26b-it-MTP",
+    "qwen3.8-27b-fp8": "Qwen/Qwen3.8-27B-FP8",
+}
+
+# 模型目录名 → ModelScope Model ID (国内下载优先)
+MODEL_MS_MAP = {
+    "qwen3.6-27b": "Qwen/Qwen3.6-27B",
+    "qwen3.8-27b-fp8": "Qwen/Qwen3.8-27B-FP8",
 }
 
 
@@ -300,6 +331,23 @@ def ensure_model(model_path: str):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.symlink_to(old_path.resolve())
         return True
+
+    # 从 ModelScope 下载 (国内直连优先, HF 直连常不可用)
+    ms_id = MODEL_MS_MAP.get(model_name)
+    if ms_id:
+        try:
+            from modelscope import snapshot_download
+
+            print(f"\n  📥 下载模型 {ms_id} → {path} (ModelScope)")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            snapshot_download(ms_id, local_dir=str(path))
+            print(f"     ✅ 下载完成: {path}")
+            return True
+        except ImportError:
+            print("     modelscope 不可用，回退 HuggingFace...")
+        except Exception as e:
+            print(f"     ❌ ModelScope 下载失败: {e}")
+            print("     回退 HuggingFace...")
 
     # 从 HuggingFace 下载
     hf_id = MODEL_HF_MAP.get(model_name)
@@ -715,6 +763,7 @@ OPTIMAL_QUICK = {
     "all": {1, 3},  # Qwen TP4 + Gemma TP2
     "qwen": {1},
     "gemma": {3},
+    "qwen38": {5},  # Qwen3.8-27B FP8 TP4 (GPU 4-7)
 }
 
 
